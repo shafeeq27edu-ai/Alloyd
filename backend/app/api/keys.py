@@ -43,3 +43,33 @@ async def add_provider_key(
     await db.commit()
     
     return {"success": True, "provider": key_in.provider_name, "message": "Key stored securely."}
+
+@router.get("/")
+async def get_provider_keys(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.core.encryption import decrypt_key
+    result = await db.execute(
+        select(ProviderKey).where(ProviderKey.user_id == current_user.id)
+    )
+    keys = result.scalars().all()
+    
+    masked_keys = []
+    for k in keys:
+        try:
+            plain = decrypt_key(k.encrypted_key)
+            # Mask all but the last 4 characters, or just return •••• if too short
+            if len(plain) > 4:
+                masked = "•" * 4 + " " + plain[-4:]
+            else:
+                masked = "•" * 4
+        except Exception:
+            masked = "•" * 4
+            
+        masked_keys.append({
+            "provider_name": k.provider_name,
+            "masked_key": masked
+        })
+        
+    return {"keys": masked_keys}
