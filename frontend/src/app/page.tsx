@@ -14,9 +14,14 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!localStorage.getItem("token")) {
-      router.push("/login");
-    }
+    const checkAuth = async () => {
+      try {
+        const res = await fetchWithAuth("/auth/me");
+      } catch (e) {
+        // fetchWithAuth will redirect on 401
+      }
+    };
+    checkAuth();
   }, [router]);
 
   useEffect(() => {
@@ -34,22 +39,12 @@ export default function ChatPage() {
     setError(null);
 
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(`${API_BASE_URL}/chat`, {
+      const response = await fetchWithAuth("/chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
-        },
         body: JSON.stringify({ provider: "groq", message: userMsg.content }),
       });
 
-      if (response.status === 401) {
-        localStorage.removeItem("token");
-        router.push("/login");
-        return;
-      }
-      if (!response.ok) {
+      if (!response.ok && response.status !== 401) {
         const err = await response.json();
         setError(err.detail || "Request failed");
         setIsStreaming(false);
@@ -60,31 +55,41 @@ export default function ChatPage() {
       const decoder = new TextDecoder("utf-8");
       if (!reader) return;
 
+      let currentEvent = "";
+
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value);
         const lines = chunk.split("\n").filter(l => l.trim() !== "");
         for (const line of lines) {
-          if (line.startsWith("data: ")) {
+          if (line.startsWith("event: ")) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith("data: ")) {
             const dataStr = line.slice(6);
-            if (dataStr === "[DONE]") {
+            if (currentEvent === "done") {
               break;
-            } else if (dataStr.startsWith("[ERROR:")) {
-              setError(dataStr.slice(7, -1));
+            } else if (currentEvent === "error") {
+              try {
+                const errData = JSON.parse(dataStr);
+                setError(errData.detail);
+              } catch (e) {
+                setError(dataStr);
+              }
               break;
+            } else if (currentEvent === "message") {
+              try {
+                const data = JSON.parse(dataStr);
+                setMessages(prev => {
+                  const newMessages = [...prev];
+                  const last = newMessages[newMessages.length - 1];
+                  if (last.role === "assistant") {
+                    last.content += data.content;
+                  }
+                  return newMessages;
+                });
+              } catch (e) {}
             }
-            try {
-              const data = JSON.parse(dataStr);
-              setMessages(prev => {
-                const newMessages = [...prev];
-                const last = newMessages[newMessages.length - 1];
-                if (last.role === "assistant") {
-                  last.content += data.content;
-                }
-                return newMessages;
-              });
-            } catch (e) {}
           }
         }
       }

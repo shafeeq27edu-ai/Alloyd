@@ -18,10 +18,9 @@ export default function LoginPage() {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: formData,
+      credentials: "include",
     });
     if (res.ok) {
-      const data = await res.json();
-      localStorage.setItem("token", data.access_token);
       router.push("/");
     } else {
       alert("Login failed");
@@ -34,6 +33,7 @@ export default function LoginPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
+      credentials: "include",
     });
     if (res.ok) {
       handleLogin(e);

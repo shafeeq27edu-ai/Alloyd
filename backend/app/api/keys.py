@@ -29,14 +29,18 @@ async def add_provider_key(
     existing_key = result.scalars().first()
     
     encrypted = encrypt_key(key_in.key)
+    # Extract last 4 characters for key_hint
+    hint = key_in.key[-4:] if len(key_in.key) > 4 else ("*" * len(key_in.key))
     
     if existing_key:
         existing_key.encrypted_key = encrypted
+        existing_key.key_hint = hint
     else:
         new_key = ProviderKey(
             user_id=current_user.id,
             provider_name=key_in.provider_name,
-            encrypted_key=encrypted
+            encrypted_key=encrypted,
+            key_hint=hint
         )
         db.add(new_key)
         
@@ -49,7 +53,6 @@ async def get_provider_keys(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    from app.core.encryption import decrypt_key
     result = await db.execute(
         select(ProviderKey).where(ProviderKey.user_id == current_user.id)
     )
@@ -57,14 +60,9 @@ async def get_provider_keys(
     
     masked_keys = []
     for k in keys:
-        try:
-            plain = decrypt_key(k.encrypted_key)
-            # Mask all but the last 4 characters, or just return •••• if too short
-            if len(plain) > 4:
-                masked = "•" * 4 + " " + plain[-4:]
-            else:
-                masked = "•" * 4
-        except Exception:
+        if k.key_hint:
+            masked = "•" * 4 + " " + k.key_hint
+        else:
             masked = "•" * 4
             
         masked_keys.append({

@@ -9,17 +9,19 @@ base_url = "http://localhost:8000/api"
 req = urllib.request.Request(f"{base_url}/auth/register", data=json.dumps({"email": "test2@test.com", "password": "password123"}).encode(), headers={"Content-Type": "application/json"})
 try:
     with urllib.request.urlopen(req) as response:
-        token = json.loads(response.read().decode()).get("access_token")
+        cookie_header = response.headers.get('Set-Cookie')
+        cookie = cookie_header.split(';')[0] if cookie_header else None
 except urllib.error.HTTPError as e:
     # If already registered, login
     data = urllib.parse.urlencode({"username": "test2@test.com", "password": "password123"}).encode()
     req = urllib.request.Request(f"{base_url}/auth/token", data=data)
     with urllib.request.urlopen(req) as response:
-        token = json.loads(response.read().decode()).get("access_token")
+        cookie_header = response.headers.get('Set-Cookie')
+        cookie = cookie_header.split(';')[0] if cookie_header else None
 
 # Chat Request (No API key added for test2@test.com)
 try:
-    req = urllib.request.Request(f"{base_url}/chat/", data=json.dumps({"provider": "groq", "message": "Hello!"}).encode(), headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"})
+    req = urllib.request.Request(f"{base_url}/chat/", data=json.dumps({"provider": "groq", "message": "Hello!"}).encode(), headers={"Content-Type": "application/json", "Cookie": cookie})
     with urllib.request.urlopen(req) as response:
         print("Chat Stream:")
         for line in response:

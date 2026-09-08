@@ -71,35 +71,28 @@ async def stream_chat(
     
     api_messages = [{"role": m.role, "content": m.content} for m in messages_history]
 
-    # 5. Provider abstraction (Hardcoded Groq for Phase 1 as per plan)
-    client = groq.AsyncGroq(api_key=plain_key)
+    # 5. Provider abstraction
+    from app.providers.registry import ProviderRegistry
     
+    try:
+        adapter = ProviderRegistry.get_adapter(req.provider)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Provider {req.provider} is not supported.")
+        
     async def generate():
         full_response = ""
-        try:
-            stream = await client.chat.completions.create(
-                messages=api_messages,
-                model="llama3-8b-8192",
-                stream=True
-            )
-            async for chunk in stream:
-                content = chunk.choices[0].delta.content
-                if content:
-                    full_response += content
-                    yield f"data: {json.dumps({'content': content})}\n\n"
-                    
-            # Save assistant message after stream completes
-            assistant_msg = Message(conversation_id=conversation.id, role="assistant", content=full_response)
-            db.add(assistant_msg)
-            await db.commit()
-            
-            yield "data: [DONE]\n\n"
-            
-        except groq.AuthenticationError:
-            yield f"data: [ERROR: Invalid API Key]\n\n"
-        except groq.RateLimitError:
-            yield f"data: [ERROR: Rate limit exceeded]\n\n"
-        except Exception as e:
-            yield f"data: [ERROR: Provider error occurred]\n\n"
+        
+        async for event, data in adapter.stream_chat(api_key=plain_key, messages=api_messages):
+            if event == "message":
+                full_response += data
+                yield f"event: message\ndata: {json.dumps({'content': data})}\n\n"
+            elif event == "done":
+                # Save assistant message after stream completes
+                assistant_msg = Message(conversation_id=conversation.id, role="assistant", content=full_response)
+                db.add(assistant_msg)
+                await db.commit()
+                yield "event: done\ndata: {}\n\n"
+            elif event == "error":
+                yield f"event: error\ndata: {json.dumps({'detail': data})}\n\n"
             
     return StreamingResponse(generate(), media_type="text/event-stream")

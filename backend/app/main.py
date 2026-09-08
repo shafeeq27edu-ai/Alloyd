@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.db.database import engine, Base
 from app.api import auth, keys, chat
+import app.providers  # To register providers
 
 app = FastAPI(title=settings.PROJECT_NAME)
 
