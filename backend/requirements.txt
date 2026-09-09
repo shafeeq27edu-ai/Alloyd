@@ -9,3 +9,5 @@ cryptography
 groq
 pydantic-settings
 python-multipart
+openai
+google-generativeai

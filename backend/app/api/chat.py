@@ -18,7 +18,9 @@ class ChatMessage(BaseModel):
     content: str
 
 class ChatRequest(BaseModel):
-    provider: str
+    mode: str = "auto" # "auto" or "manual"
+    provider: Optional[str] = None
+    model: Optional[str] = None
     message: str
     conversation_id: Optional[str] = None
 
@@ -28,20 +30,31 @@ async def stream_chat(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    # 1. Fetch provider key
+    from app.providers.router import RuleRouter
+    
+    # 1. Routing Logic
+    if req.mode == "auto":
+        target_provider, target_model = RuleRouter.route(req.message)
+    else:
+        if not req.provider or not req.model:
+            raise HTTPException(status_code=400, detail="Manual mode requires provider and model.")
+        target_provider = req.provider
+        target_model = req.model
+
+    # 2. Fetch provider key
     result = await db.execute(
         select(ProviderKey).where(
             ProviderKey.user_id == current_user.id,
-            ProviderKey.provider_name == req.provider
+            ProviderKey.provider_name == target_provider
         )
     )
     provider_key_record = result.scalars().first()
     if not provider_key_record:
-        raise HTTPException(status_code=400, detail=f"No API key configured for provider {req.provider}")
+        raise HTTPException(status_code=400, detail=f"No API key configured for provider {target_provider}")
     
     plain_key = decrypt_key(provider_key_record.encrypted_key)
     
-    # 2. Setup conversation
+    # 3. Setup conversation
     if req.conversation_id:
         conv_result = await db.execute(
             select(Conversation).where(
@@ -58,12 +71,12 @@ async def stream_chat(
         await db.commit()
         await db.refresh(conversation)
 
-    # 3. Save user message
+    # 4. Save user message
     user_msg = Message(conversation_id=conversation.id, role="user", content=req.message)
     db.add(user_msg)
     await db.commit()
 
-    # 4. Fetch history for context
+    # 5. Fetch history for context
     msg_result = await db.execute(
         select(Message).where(Message.conversation_id == conversation.id).order_by(Message.created_at)
     )
@@ -71,17 +84,27 @@ async def stream_chat(
     
     api_messages = [{"role": m.role, "content": m.content} for m in messages_history]
 
-    # 5. Provider abstraction
+    # 6. Provider abstraction
     from app.providers.registry import ProviderRegistry
     
     try:
-        adapter = ProviderRegistry.get_adapter(req.provider)
+        adapter = ProviderRegistry.get_adapter(target_provider)
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"Provider {req.provider} is not supported.")
+        raise HTTPException(status_code=400, detail=f"Provider {target_provider} is not supported.")
         
     async def generate():
+        # Emit routing metadata first so frontend knows who is answering
+        routing_meta = {
+            "provider": target_provider,
+            "model": target_model,
+            "mode": req.mode
+        }
+        yield f"event: routing\ndata: {json.dumps(routing_meta)}\n\n"
+
         full_response = ""
         
+        # Note: We pass model to the adapter, though currently groq_adapter hardcodes it.
+        # We will update adapters to accept model in Phase 2.2
         async for event, data in adapter.stream_chat(api_key=plain_key, messages=api_messages):
             if event == "message":
                 full_response += data

@@ -73,6 +73,8 @@ export default function SettingsPage() {
             className="p-2 rounded bg-gray-700 border-none outline-none text-white"
           >
             <option value="groq">Groq</option>
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Google Gemini</option>
           </select>
           <input 
             type="password" 

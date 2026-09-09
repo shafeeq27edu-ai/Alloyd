@@ -24,9 +24,18 @@ req = urllib.request.Request(f"{base_url}/keys/", data=json.dumps({"provider_nam
 with urllib.request.urlopen(req) as response:
     print("Added Key:", response.read().decode())
 
-# Chat Request
-req = urllib.request.Request(f"{base_url}/chat/", data=json.dumps({"provider": "groq", "message": "Hello!"}).encode(), headers={"Content-Type": "application/json", "Cookie": cookie})
+# Chat Request - Auto Mode
+print("Testing Auto Mode...")
+req = urllib.request.Request(f"{base_url}/chat/", data=json.dumps({"mode": "auto", "message": "Hello!"}).encode(), headers={"Content-Type": "application/json", "Cookie": cookie})
 with urllib.request.urlopen(req) as response:
-    print("Chat Stream:")
+    print("Chat Stream (Auto):")
+    for line in response:
+        print(line.decode().strip())
+
+# Chat Request - Manual Mode
+print("\nTesting Manual Mode...")
+req = urllib.request.Request(f"{base_url}/chat/", data=json.dumps({"mode": "manual", "provider": "groq", "model": "llama3-8b-8192", "message": "Hello!"}).encode(), headers={"Content-Type": "application/json", "Cookie": cookie})
+with urllib.request.urlopen(req) as response:
+    print("Chat Stream (Manual):")
     for line in response:
         print(line.decode().strip())
