@@ -1,13 +1,15 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { fetchWithAuth } from "@/lib/api";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
-export default function SettingsPage() {
+function SettingsContent() {
   const [provider, setProvider] = useState("groq");
   const [key, setKey] = useState("");
   const [configuredKeys, setConfiguredKeys] = useState<{provider_name: string, masked_key: string}[]>([]);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isOnboarding = searchParams.get("onboarding") === "true";
 
   useEffect(() => {
     fetchKeys();
@@ -50,6 +52,13 @@ export default function SettingsPage() {
           </button>
         </div>
         
+        {isOnboarding && (
+          <div className="mb-6 p-4 bg-blue-900 border border-blue-700 rounded-lg text-sm text-blue-100">
+            <strong>Welcome to Alloyd!</strong><br />
+            Before you can start chatting, you need to configure at least one AI provider API key. We recommend starting with Groq or Gemini.
+          </div>
+        )}
+
         <div className="mb-6 border-b border-gray-700 pb-4">
           <h2 className="text-lg font-semibold mb-2">Configured Providers</h2>
           {configuredKeys.length === 0 ? (
@@ -57,9 +66,22 @@ export default function SettingsPage() {
           ) : (
             <ul className="space-y-2">
               {configuredKeys.map((k, i) => (
-                <li key={i} className="flex justify-between text-sm p-2 bg-gray-700 rounded">
+                <li key={i} className="flex justify-between items-center text-sm p-2 bg-gray-700 rounded">
                   <span className="capitalize">{k.provider_name}</span>
-                  <span className="text-green-400">Connected {k.masked_key}</span>
+                  <div className="flex items-center gap-4">
+                    <span className="text-green-400">Connected {k.masked_key}</span>
+                    <button 
+                      onClick={async () => {
+                        if (confirm(`Remove ${k.provider_name} key?`)) {
+                          await fetchWithAuth(`/keys/${k.provider_name}`, { method: "DELETE" });
+                          fetchKeys();
+                        }
+                      }}
+                      className="text-red-400 hover:text-red-300 text-xs"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -70,11 +92,11 @@ export default function SettingsPage() {
           <h2 className="text-lg font-semibold">Add / Update Key</h2>
           <select 
             value={provider} onChange={e => setProvider(e.target.value)}
-            className="p-2 rounded bg-gray-700 border-none outline-none text-white"
+            className="p-2 rounded bg-gray-700 border-none outline-none text-white capitalize"
           >
             <option value="groq">Groq</option>
-            <option value="openai">OpenAI</option>
             <option value="gemini">Google Gemini</option>
+            <option value="anthropic">Anthropic (Claude)</option>
           </select>
           <input 
             type="password" 
@@ -86,5 +108,13 @@ export default function SettingsPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-gray-900 text-white">Loading...</div>}>
+      <SettingsContent />
+    </Suspense>
   );
 }

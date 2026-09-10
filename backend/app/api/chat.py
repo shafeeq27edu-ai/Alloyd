@@ -110,7 +110,8 @@ async def stream_chat(
             "provider": target_provider,
             "model": target_model,
             "mode": req_mode,
-            "conversation_id": conversation.id
+            "conversation_id": conversation.id,
+            "category": getattr(category, "value", str(category)) if req_mode == "auto" else "MANUAL"
         }
         yield f"event: routing\ndata: {json.dumps(routing_meta)}\n\n"
 

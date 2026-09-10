@@ -44,23 +44,49 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-900 text-white">
-      <div className="w-full max-w-sm p-6 bg-gray-800 rounded-lg">
-        <h1 className="text-2xl font-bold mb-4">Login to Alloyd</h1>
+      <div className="w-full max-w-sm p-8 bg-gray-800 rounded-xl shadow-lg border border-gray-700">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">Alloyd</h1>
+          <p className="text-gray-400 mt-2 text-sm">Sign in to your multi-AI workspace</p>
+        </div>
+
         <form className="flex flex-col gap-4">
-          <input 
-            type="email" 
-            placeholder="Email" 
-            className="p-2 rounded bg-gray-700 border-none" 
-            value={email} onChange={e => setEmail(e.target.value)}
-          />
-          <input 
-            type="password" 
-            placeholder="Password" 
-            className="p-2 rounded bg-gray-700 border-none" 
-            value={password} onChange={e => setPassword(e.target.value)}
-          />
-          <button onClick={handleLogin} className="p-2 bg-blue-600 rounded">Login</button>
-          <button onClick={handleRegister} className="p-2 bg-gray-600 rounded">Register</button>
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-1">Email</label>
+            <input 
+              type="email" 
+              placeholder="you@example.com" 
+              className="w-full p-3 rounded-lg bg-gray-900 border border-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition" 
+              value={email} onChange={e => setEmail(e.target.value)}
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-1">Password</label>
+            <input 
+              type="password" 
+              placeholder="••••••••" 
+              className="w-full p-3 rounded-lg bg-gray-900 border border-gray-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition" 
+              value={password} onChange={e => setPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="flex flex-col gap-2 mt-4">
+            <button 
+              onClick={handleLogin} 
+              className="w-full p-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition"
+            >
+              Sign In
+            </button>
+            <button 
+              onClick={handleRegister} 
+              className="w-full p-3 bg-transparent border border-gray-600 hover:bg-gray-700 text-gray-300 font-semibold rounded-lg transition"
+            >
+              Create Account
+            </button>
+          </div>
         </form>
       </div>
     </div>

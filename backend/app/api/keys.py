@@ -71,3 +71,22 @@ async def get_provider_keys(
         })
         
     return {"keys": masked_keys}
+
+@router.delete("/{provider_name}", status_code=204)
+async def delete_provider_key(
+    provider_name: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(ProviderKey).where(
+            ProviderKey.user_id == current_user.id,
+            ProviderKey.provider_name == provider_name
+        )
+    )
+    key = result.scalars().first()
+    if not key:
+        raise HTTPException(status_code=404, detail="Key not found")
+        
+    await db.delete(key)
+    await db.commit()
