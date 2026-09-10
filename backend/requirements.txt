@@ -9,5 +9,6 @@ cryptography
 groq
 pydantic-settings
 python-multipart
-openai
+anthropic
+pyyaml
 google-generativeai

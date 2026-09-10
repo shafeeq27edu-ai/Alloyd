@@ -1,0 +1,29 @@
+routes:
+  WRITING:
+    primary:
+      provider: anthropic
+      model: claude-3-5-sonnet-20240620
+    fallback:
+      provider: groq
+      model: llama3-70b-8192
+  IMAGE_GENERATION:
+    primary:
+      provider: gemini
+      model: gemini-1.5-pro
+    fallback:
+      provider: gemini
+      model: gemini-1.5-flash
+  PLANNING_DECISION:
+    primary:
+      provider: anthropic
+      model: claude-3-5-sonnet-20240620
+    fallback:
+      provider: gemini
+      model: gemini-1.5-pro
+  GENERAL:
+    primary:
+      provider: groq
+      model: llama3-8b-8192
+    fallback:
+      provider: gemini
+      model: gemini-1.5-flash
