@@ -126,7 +126,7 @@ export default function ChatPage() {
 
   const models: Record<string, string[]> = {
     groq: ["llama3-8b-8192", "llama3-70b-8192"],
-    openai: ["gpt-4o", "gpt-4o-mini"],
+    anthropic: ["claude-3-5-sonnet-20240620", "claude-3-haiku-20240307"],
     gemini: ["gemini-1.5-pro", "gemini-1.5-flash"]
   };
 

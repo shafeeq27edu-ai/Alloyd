@@ -33,6 +33,9 @@ class Conversation(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     title = Column(String(255))
+    mode = Column(String(50), default="auto") # "auto" or "manual"
+    provider = Column(String(50), nullable=True)
+    model = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     
     user = relationship("User", back_populates="conversations")
