@@ -5,7 +5,7 @@ from app.providers.groq_adapter import GroqAdapter
 
 class TaskClassifier:
     @classmethod
-    async def classify(cls, prompt: str, groq_api_key: str = None) -> TaskCategory:
+    async def classify(cls, prompt: str, groq_api_key: str | None = None) -> TaskCategory:
         for skill_name, skill in SKILLS.items():
             if f"@{skill_name}" in prompt:
                 return TaskCategory(skill.category)

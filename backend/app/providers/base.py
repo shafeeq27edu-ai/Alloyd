@@ -26,7 +26,7 @@ class BaseProviderAdapter(ABC):
         pass
 
     @abstractmethod
-    async def stream_chat(self, api_key: str, model_id: str, messages: List[Dict[str, str]]) -> AsyncGenerator[Tuple[str, str], None]:
+    def stream_chat(self, api_key: str, model_id: str, messages: List[Dict[str, str]]) -> AsyncGenerator[Tuple[str, str], None]:
         """
         Streams chat responses using the provider SDK.
         Yields tuples of (event_type, data).
