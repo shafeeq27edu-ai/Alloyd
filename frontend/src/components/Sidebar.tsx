@@ -20,19 +20,19 @@ export default function Sidebar({
 }) {
   const [conversations, setConversations] = useState<ConversationInfo[]>([]);
 
-  const loadConversations = async () => {
-    try {
-      const res = await fetchWithAuth("/conversations");
-      if (res.ok) {
-        const data = await res.json();
-        setConversations(data.conversations || []);
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
   useEffect(() => {
+    const loadConversations = async () => {
+      try {
+        const res = await fetchWithAuth("/conversations");
+        if (res.ok) {
+          const data = await res.json();
+          setConversations(data.conversations || []);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
     loadConversations();
     // Refresh periodically or expose a ref to refresh on new chat
     const interval = setInterval(loadConversations, 5000);

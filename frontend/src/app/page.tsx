@@ -136,7 +136,7 @@ export default function ChatPage() {
                   }
                   return newMessages;
                 });
-              } catch (e) {}
+              } catch {}
             } else if (currentEvent === "error") {
               try {
                 const errData = JSON.parse(dataStr);
@@ -153,7 +153,7 @@ export default function ChatPage() {
                   userMsg = codes[errData.detail.code] || errData.detail.message;
                 }
                 setError(userMsg);
-              } catch (e) {
+              } catch {
                 setError(dataStr);
               }
               break;
@@ -168,12 +168,12 @@ export default function ChatPage() {
                   }
                   return newMessages;
                 });
-              } catch (e) {}
+              } catch {}
             }
           }
         }
       }
-    } catch (e) {
+    } catch {
       setError("Network error");
     } finally {
       setIsStreaming(false);
@@ -289,10 +289,12 @@ export default function ChatPage() {
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
                       components={{
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
                         code({node, inline, className, children, ...props}: any) {
                           const match = /language-(\w+)/.exec(className || '')
                           return !inline && match ? (
                             <SyntaxHighlighter
+                              // eslint-disable-next-line @typescript-eslint/no-explicit-any
                               style={vscDarkPlus as any}
                               language={match[1]}
                               PreTag="div"

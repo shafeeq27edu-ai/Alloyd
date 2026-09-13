@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, Suspense, useCallback } from "react";
 import { fetchWithAuth } from "@/lib/api";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -11,11 +11,7 @@ function SettingsContent() {
   const searchParams = useSearchParams();
   const isOnboarding = searchParams.get("onboarding") === "true";
 
-  useEffect(() => {
-    fetchKeys();
-  }, []);
-
-  const fetchKeys = async () => {
+  const fetchKeys = useCallback(async () => {
     try {
       const res = await fetchWithAuth("/keys");
       if (res.ok) {
@@ -25,7 +21,11 @@ function SettingsContent() {
     } catch (e) {
       console.error(e);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void fetchKeys();
+  }, [fetchKeys]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();

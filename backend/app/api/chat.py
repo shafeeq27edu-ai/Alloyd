@@ -93,12 +93,19 @@ async def stream_chat(
     
     plain_key = decrypt_key(provider_key_record.encrypted_key)
     
+    from app.core.skills import SKILLS
     # Fetch history for context
     msg_result = await db.execute(
         select(Message).where(Message.conversation_id == conversation.id).order_by(Message.created_at)
     )
     messages_history = msg_result.scalars().all()
     api_messages = [{"role": m.role, "content": m.content} for m in messages_history]
+
+    # Inject skill system prompt if applicable
+    for skill_name, skill in SKILLS.items():
+        if f"@{skill_name}" in req.message:
+            api_messages.insert(0, {"role": "system", "content": skill.system_prompt})
+            break
 
     try:
         adapter = ProviderRegistry.get_adapter(target_provider)
