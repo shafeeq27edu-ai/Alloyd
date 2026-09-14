@@ -13,6 +13,7 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
   
   if (response.status === 401 && url !== "/auth/login") {
     // If not authenticated, redirect to login
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.href = "/login";
   }
   return response;

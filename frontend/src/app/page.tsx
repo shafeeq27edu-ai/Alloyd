@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { API_BASE_URL, fetchWithAuth } from "@/lib/api";
+import { fetchWithAuth } from "@/lib/api";
 import Sidebar from "@/components/Sidebar";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -36,8 +36,9 @@ export default function ChatPage() {
             router.push("/settings?onboarding=true");
           }
         }
-      } catch (e) {
+      } catch (err) {
         // fetchWithAuth will redirect on 401
+        console.error(err);
       }
     };
     checkAuth();
@@ -51,6 +52,7 @@ export default function ChatPage() {
           setMessages(data.messages || []);
         });
     } else {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMessages([]);
     }
   }, [currentConversationId]);
@@ -80,7 +82,7 @@ export default function ChatPage() {
     setError(null);
 
     try {
-      const payload: any = { mode, message: userMsg.content };
+      const payload: Record<string, string> = { mode, message: userMsg.content };
       if (mode === "manual") {
         payload.provider = selectedProvider;
         payload.model = selectedModel;
@@ -143,7 +145,7 @@ export default function ChatPage() {
                 // Map known codes to user-friendly messages
                 let userMsg = errData.detail;
                 if (typeof errData.detail === 'object' && errData.detail.code) {
-                  const codes: any = {
+                  const codes: Record<string, string> = {
                     "INVALID_API_KEY": "The API key for this provider appears to be invalid or missing.",
                     "RATE_LIMIT": "This provider is temporarily rate limited. Please wait a moment.",
                     "TIMEOUT": "The request took too long. Please try again.",

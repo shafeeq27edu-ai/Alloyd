@@ -52,13 +52,33 @@ export default function Sidebar({
       
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
         {conversations.map(c => (
-          <button
-            key={c.id}
-            onClick={() => onSelect(c.id)}
-            className={`w-full text-left px-3 py-2 rounded-lg text-sm truncate transition ${currentId === c.id ? 'bg-gray-800 text-white font-medium' : 'hover:bg-gray-800'}`}
-          >
-            {c.title || "New Conversation"}
-          </button>
+          <div key={c.id} className={`group flex items-center w-full rounded-lg text-sm transition ${currentId === c.id ? 'bg-gray-800 text-white font-medium' : 'hover:bg-gray-800'}`}>
+            <button
+              onClick={() => onSelect(c.id)}
+              className="flex-1 text-left px-3 py-2 truncate"
+            >
+              {c.title || "New Conversation"}
+            </button>
+            <button
+              onClick={async (e) => {
+                e.stopPropagation();
+                if (!confirm("Delete this conversation?")) return;
+                try {
+                  const res = await fetchWithAuth(`/conversations/${c.id}`, { method: 'DELETE' });
+                  if (res.ok) {
+                    if (currentId === c.id) onSelect(null);
+                    setConversations(prev => prev.filter(conv => conv.id !== c.id));
+                  }
+                } catch (err) {
+                  console.error(err);
+                }
+              }}
+              className="opacity-0 group-hover:opacity-100 p-2 text-gray-500 hover:text-red-400 transition"
+              title="Delete conversation"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+            </button>
+          </div>
         ))}
         {conversations.length === 0 && (
           <p className="text-xs text-gray-500 text-center mt-4">No history yet</p>
