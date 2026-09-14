@@ -4,6 +4,8 @@ from typing import Tuple, Dict, Any
 from pathlib import Path
 
 class TaskCategory(Enum):
+    CODING = "CODING"
+    RESEARCH = "RESEARCH"
     WRITING = "WRITING"
     IMAGE_GENERATION = "IMAGE_GENERATION"
     PLANNING_DECISION = "PLANNING_DECISION"

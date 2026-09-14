@@ -92,8 +92,17 @@ class MockAdapter(BaseProviderAdapter):
         if api_key == "invalid":
             yield ("error", json.dumps(ProviderError(ErrorCode.INVALID_API_KEY, "mock", "invalid key", False).to_dict()))
             return
+        if api_key == "bad_request":
+            yield ("error", json.dumps(ProviderError(ErrorCode.BAD_REQUEST, "mock", "bad request", False).to_dict()))
+            return
         if api_key == "rate_limit":
             yield ("error", json.dumps(ProviderError(ErrorCode.RATE_LIMIT, "mock", "rate limited", True).to_dict()))
+            return
+        if api_key == "timeout":
+            yield ("error", json.dumps(ProviderError(ErrorCode.TIMEOUT, "mock", "timed out", True).to_dict()))
+            return
+        if api_key == "unavailable":
+            yield ("error", json.dumps(ProviderError(ErrorCode.PROVIDER_UNAVAILABLE, "mock", "unavailable", True).to_dict()))
             return
             
         yield ("message", "mock response")
@@ -109,4 +118,5 @@ def setup_mock_provider():
     ProviderRegistry.register("mock", MockAdapter)
     ProviderRegistry.register("groq", MockAdapter)
     ProviderRegistry.register("anthropic", MockAdapter)
+    ProviderRegistry.register("gemini", MockAdapter)
     yield

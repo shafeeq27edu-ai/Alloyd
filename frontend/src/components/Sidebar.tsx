@@ -84,6 +84,25 @@ export default function Sidebar({
           <p className="text-xs text-gray-500 text-center mt-4">No history yet</p>
         )}
       </div>
+      
+      <div className="p-4 border-t border-gray-800">
+        <button
+          onClick={async () => {
+            try {
+              const res = await fetchWithAuth("/auth/logout", { method: "POST" });
+              if (res.ok) {
+                window.location.href = "/login";
+              }
+            } catch (err) {
+              console.error(err);
+            }
+          }}
+          className="w-full py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-semibold transition flex items-center justify-center gap-2"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+          Logout
+        </button>
+      </div>
     </div>
   );
 }

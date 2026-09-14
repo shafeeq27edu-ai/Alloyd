@@ -147,11 +147,22 @@ async def stream_chat(
                         yield "event: done\ndata: {}\n\n"
                     elif event == "error":
                         if not first_chunk_received and not fallback_attempted and req_mode == "auto":
-                            error_event_data = data
-                            break
+                            try:
+                                err_dict = json.loads(data)
+                                if err_dict.get("retryable", False):
+                                    error_event_data = data
+                                    break
+                            except json.JSONDecodeError:
+                                pass
                         yield f"event: error\ndata: {data}\n\n"
             except Exception as e:
-                if not first_chunk_received and not fallback_attempted and req_mode == "auto":
+                is_retryable = False
+                if hasattr(e, "retryable"):
+                    is_retryable = getattr(e, "retryable")
+                elif hasattr(e, "to_dict"):
+                    is_retryable = e.to_dict().get("retryable", False)
+                    
+                if not first_chunk_received and not fallback_attempted and req_mode == "auto" and is_retryable:
                     if hasattr(e, "to_dict"):
                         error_event_data = json.dumps(e.to_dict())
                     else:

@@ -74,7 +74,12 @@ async def login_for_access_token(response: Response, form_data: OAuth2PasswordRe
 
 @router.post("/logout")
 async def logout(response: Response):
-    response.delete_cookie("access_token")
+    response.delete_cookie(
+        key="access_token",
+        httponly=True,
+        secure=False,
+        samesite="lax"
+    )
     return {"success": True}
 
 @router.get("/me")

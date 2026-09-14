@@ -189,9 +189,12 @@ export default function ChatPage() {
   };
 
   const skills = [
-    { name: "Architect", prompt: "@architect Help me design a system architecture for..." },
-    { name: "Writer", prompt: "@copywriter Draft a professional email to..." },
-    { name: "Artist", prompt: "@artist Generate an image prompt for..." }
+    { name: "Code Review", prompt: "@reviewer Review this code: " },
+    { name: "Explain Code", prompt: "@explainer How does this work? " },
+    { name: "Summarization", prompt: "@summarizer Summarize the following: " },
+    { name: "Writing", prompt: "@writer Draft a professional email: " },
+    { name: "Brainstorming", prompt: "@brainstormer Give me ideas for: " },
+    { name: "Research Analysis", prompt: "@researcher Research and analyze: " }
   ];
 
   return (
@@ -260,7 +263,7 @@ export default function ChatPage() {
                     className="p-4 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-left transition shadow-sm group"
                   >
                     <div className="font-semibold text-blue-400 group-hover:text-blue-300 transition mb-1">{skill.name}</div>
-                    <div className="text-sm text-gray-400 truncate">{skill.prompt.replace(`@${skill.name.toLowerCase()} `, '')}</div>
+                    <div className="text-sm text-gray-400 truncate">{skill.prompt.replace(/^@\w+\s+/, '')}</div>
                   </button>
                 ))}
               </div>
