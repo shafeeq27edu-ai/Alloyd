@@ -2,6 +2,9 @@
 import { useState, useEffect, Suspense, useCallback } from "react";
 import { fetchWithAuth } from "@/lib/api";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useToast } from "@/components/Toast";
+import Select from "@/components/Select";
+import { Settings2, X } from "lucide-react";
 
 function SettingsContent() {
   const [provider, setProvider] = useState("groq");
@@ -10,6 +13,7 @@ function SettingsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const isOnboarding = searchParams.get("onboarding") === "true";
+  const { addToast } = useToast();
 
   const fetchKeys = useCallback(async () => {
     try {
@@ -24,63 +28,88 @@ function SettingsContent() {
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchKeys();
   }, [fetchKeys]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!key) return;
-    const res = await fetchWithAuth("/keys", {
-      method: "POST",
-      body: JSON.stringify({ provider_name: provider, key }),
-    });
-    if (res.ok) {
-      setKey("");
-      fetchKeys();
-    } else {
-      alert("Failed to save key");
+    try {
+      const res = await fetchWithAuth("/keys", {
+        method: "POST",
+        body: JSON.stringify({ provider_name: provider, key }),
+      });
+      if (res.ok) {
+        setKey("");
+        fetchKeys();
+        addToast("Key saved successfully", "success");
+      } else {
+        addToast("Failed to save key", "error");
+      }
+    } catch {
+      addToast("Network error saving key", "error");
     }
   };
 
+  const providerOptions = [
+    { value: "groq", label: "Groq" },
+    { value: "gemini", label: "Google Gemini" },
+    { value: "anthropic", label: "Anthropic (Claude)" }
+  ];
+
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gray-900 text-white">
-      <div className="w-full max-w-sm p-6 bg-gray-800 rounded-lg">
-        <div className="flex justify-between items-center mb-4">
-          <h1 className="text-2xl font-bold">Settings</h1>
-          <button onClick={() => router.push("/")} className="text-sm text-blue-400 hover:underline">
-            Back to Chat
+    <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-950 text-zinc-50 font-sans px-4">
+      <div className="w-full max-w-[420px] p-8 bg-zinc-900/50 rounded-2xl shadow-2xl border border-zinc-800/80 backdrop-blur-sm">
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-xl font-semibold tracking-tight flex items-center gap-2">
+            <Settings2 size={20} className="text-zinc-400" />
+            Workspace Settings
+          </h1>
+          <button onClick={() => router.push("/")} className="text-zinc-500 hover:text-zinc-200 transition-colors p-1" aria-label="Close settings">
+            <X size={18} />
           </button>
         </div>
         
         {isOnboarding && (
-          <div className="mb-6 p-4 bg-blue-900 border border-blue-700 rounded-lg text-sm text-blue-100">
-            <strong>Welcome to Alloyd!</strong><br />
-            Before you can start chatting, you need to configure at least one AI provider API key. We recommend starting with Groq or Gemini.
+          <div className="mb-8 p-4 bg-zinc-800/50 border border-zinc-700 rounded-xl text-sm leading-relaxed text-zinc-300">
+            <strong className="text-zinc-100 block mb-1">Welcome to Alloyd</strong>
+            Please configure at least one AI provider API key before starting. We recommend Groq or Gemini.
           </div>
         )}
 
-        <div className="mb-6 border-b border-gray-700 pb-4">
-          <h2 className="text-lg font-semibold mb-2">Configured Providers</h2>
+        <div className="mb-8 border-b border-zinc-800 pb-6">
+          <h2 className="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-3">Configured Providers</h2>
           {configuredKeys.length === 0 ? (
-            <p className="text-gray-400 text-sm">No keys configured yet.</p>
+            <p className="text-zinc-500 text-sm">No keys configured yet.</p>
           ) : (
-            <ul className="space-y-2">
+            <ul className="space-y-2.5">
               {configuredKeys.map((k, i) => (
-                <li key={i} className="flex justify-between items-center text-sm p-2 bg-gray-700 rounded">
-                  <span className="capitalize">{k.provider_name}</span>
-                  <div className="flex items-center gap-4">
-                    <span className="text-green-400">Connected {k.masked_key}</span>
+                <li key={i} className="flex justify-between items-center text-sm px-3 py-2.5 bg-zinc-950/50 border border-zinc-800/50 rounded-lg">
+                  <span className="capitalize font-medium text-zinc-200">{k.provider_name}</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-zinc-400 flex items-center gap-1.5 text-xs font-mono">
+                      <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
+                      {k.masked_key}
+                    </span>
                     <button 
                       onClick={async () => {
                         if (confirm(`Remove ${k.provider_name} key?`)) {
-                          await fetchWithAuth(`/keys/${k.provider_name}`, { method: "DELETE" });
-                          fetchKeys();
+                          try {
+                            const res = await fetchWithAuth(`/keys/${k.provider_name}`, { method: "DELETE" });
+                            if (res.ok) {
+                              fetchKeys();
+                              addToast("Key removed", "success");
+                            } else {
+                              addToast("Failed to remove key", "error");
+                            }
+                          } catch {
+                            addToast("Network error", "error");
+                          }
                         }
                       }}
-                      className="text-red-400 hover:text-red-300 text-xs"
+                      className="text-zinc-500 hover:text-red-400 text-xs transition-colors"
                     >
-                      Delete
+                      Remove
                     </button>
                   </div>
                 </li>
@@ -90,22 +119,21 @@ function SettingsContent() {
         </div>
 
         <form onSubmit={handleSave} className="flex flex-col gap-4">
-          <h2 className="text-lg font-semibold">Add / Update Key</h2>
-          <select 
-            value={provider} onChange={e => setProvider(e.target.value)}
-            className="p-2 rounded bg-gray-700 border-none outline-none text-white capitalize"
-          >
-            <option value="groq">Groq</option>
-            <option value="gemini">Google Gemini</option>
-            <option value="anthropic">Anthropic (Claude)</option>
-          </select>
-          <input 
-            type="password" 
-            placeholder="API Key" 
-            className="p-2 rounded bg-gray-700 border-none outline-none text-white" 
-            value={key} onChange={e => setKey(e.target.value)}
-          />
-          <button type="submit" className="p-2 bg-blue-600 rounded font-bold hover:bg-blue-700 transition">Save Key</button>
+          <h2 className="text-sm font-medium text-zinc-400 uppercase tracking-wider">Add / Update Key</h2>
+          <div className="flex flex-col gap-3">
+            <Select 
+              options={providerOptions}
+              value={provider}
+              onChange={setProvider}
+            />
+            <input 
+              type="password" 
+              placeholder="API Key" 
+              className="w-full px-3 py-2.5 rounded-lg bg-zinc-950/50 border border-zinc-800 focus:border-zinc-500 outline-none text-zinc-100 text-sm transition-colors placeholder:text-zinc-600 font-mono shadow-sm" 
+              value={key} onChange={e => setKey(e.target.value)}
+            />
+            <button type="submit" className="w-full py-2.5 mt-1 bg-zinc-100 hover:bg-white text-zinc-950 font-medium rounded-lg transition-colors text-sm shadow-sm disabled:opacity-50">Save Provider Key</button>
+          </div>
         </form>
       </div>
     </div>
@@ -114,7 +142,7 @@ function SettingsContent() {
 
 export default function SettingsPage() {
   return (
-    <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-gray-900 text-white">Loading...</div>}>
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-zinc-950 text-zinc-50 font-sans">Loading...</div>}>
       <SettingsContent />
     </Suspense>
   );

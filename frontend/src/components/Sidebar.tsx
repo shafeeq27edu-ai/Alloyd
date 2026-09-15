@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import { fetchWithAuth } from "@/lib/api";
+import { MessageSquarePlus, Trash2, LogOut, X } from "lucide-react";
+import { useToast } from "@/components/Toast";
 
 type ConversationInfo = {
   id: string;
@@ -13,12 +15,17 @@ type ConversationInfo = {
 
 export default function Sidebar({ 
   onSelect, 
-  currentId 
+  currentId,
+  isOpen,
+  onClose
 }: { 
   onSelect: (id: string | null) => void;
   currentId: string | null;
+  isOpen: boolean;
+  onClose: () => void;
 }) {
   const [conversations, setConversations] = useState<ConversationInfo[]>([]);
+  const { addToast } = useToast();
 
   useEffect(() => {
     const loadConversations = async () => {
@@ -34,75 +41,115 @@ export default function Sidebar({
     };
 
     loadConversations();
-    // Refresh periodically or expose a ref to refresh on new chat
     const interval = setInterval(loadConversations, 5000);
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isOpen) {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [isOpen, onClose]);
+
   return (
-    <div className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col h-full text-gray-300">
-      <div className="p-4 border-b border-gray-800">
-        <button 
-          onClick={() => onSelect(null)}
-          className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition"
-        >
-          + New Chat
-        </button>
-      </div>
+    <>
+      <div 
+        className={`fixed inset-0 z-40 bg-zinc-950/80 backdrop-blur-sm transition-opacity md:hidden ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} 
+        onClick={onClose}
+        aria-hidden="true"
+      />
       
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        {conversations.map(c => (
-          <div key={c.id} className={`group flex items-center w-full rounded-lg text-sm transition ${currentId === c.id ? 'bg-gray-800 text-white font-medium' : 'hover:bg-gray-800'}`}>
-            <button
-              onClick={() => onSelect(c.id)}
-              className="flex-1 text-left px-3 py-2 truncate"
-            >
-              {c.title || "New Conversation"}
-            </button>
-            <button
-              onClick={async (e) => {
-                e.stopPropagation();
-                if (!confirm("Delete this conversation?")) return;
-                try {
-                  const res = await fetchWithAuth(`/conversations/${c.id}`, { method: 'DELETE' });
-                  if (res.ok) {
-                    if (currentId === c.id) onSelect(null);
-                    setConversations(prev => prev.filter(conv => conv.id !== c.id));
+      <div className={`fixed inset-y-0 left-0 z-50 w-72 md:w-64 bg-zinc-950 border-r border-zinc-800/50 flex flex-col h-full text-zinc-300 font-sans transform transition-transform md:translate-x-0 md:static ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="p-4 border-b border-zinc-800/50 flex items-center gap-2">
+          <button 
+            onClick={() => {
+              onSelect(null);
+              if (window.innerWidth < 768) onClose();
+            }}
+            className="flex-1 py-2.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-100 rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center justify-center gap-2"
+          >
+            <MessageSquarePlus size={16} />
+            New Chat
+          </button>
+          
+          <button 
+            onClick={onClose}
+            className="md:hidden p-2.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 rounded-lg transition-colors border border-transparent hover:border-zinc-700"
+            aria-label="Close sidebar"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto p-3 space-y-0.5 custom-scrollbar">
+          {conversations.map(c => (
+            <div key={c.id} className={`group flex items-center w-full rounded-md text-sm transition-colors ${currentId === c.id ? 'bg-zinc-800/80 text-zinc-100 font-medium' : 'text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'}`}>
+              <button
+                onClick={() => {
+                  onSelect(c.id);
+                  if (window.innerWidth < 768) onClose();
+                }}
+                className="flex-1 text-left px-3 py-2.5 truncate"
+              >
+                {c.title || "New Conversation"}
+              </button>
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  if (!confirm("Delete this conversation?")) return;
+                  try {
+                    const res = await fetchWithAuth(`/conversations/${c.id}`, { method: 'DELETE' });
+                    if (res.ok) {
+                      if (currentId === c.id) onSelect(null);
+                      setConversations(prev => prev.filter(conv => conv.id !== c.id));
+                      addToast("Conversation deleted", "success");
+                    } else {
+                      addToast("Failed to delete conversation", "error");
+                    }
+                  } catch (err) {
+                    console.error(err);
+                    addToast("Network error deleting conversation", "error");
                   }
-                } catch (err) {
-                  console.error(err);
+                }}
+                className="opacity-0 group-hover:opacity-100 p-2 text-zinc-500 hover:text-red-400 transition-colors"
+                title="Delete conversation"
+                aria-label={`Delete ${c.title || "conversation"}`}
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+          {conversations.length === 0 && (
+            <p className="text-xs text-zinc-600 text-center mt-6">No history yet</p>
+          )}
+        </div>
+        
+        <div className="p-3 border-t border-zinc-800/50">
+          <button
+            onClick={async () => {
+              try {
+                const res = await fetchWithAuth("/auth/logout", { method: "POST" });
+                if (res.ok) {
+                  window.location.href = "/login";
+                } else {
+                  addToast("Failed to sign out", "error");
                 }
-              }}
-              className="opacity-0 group-hover:opacity-100 p-2 text-gray-500 hover:text-red-400 transition"
-              title="Delete conversation"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
-            </button>
-          </div>
-        ))}
-        {conversations.length === 0 && (
-          <p className="text-xs text-gray-500 text-center mt-4">No history yet</p>
-        )}
-      </div>
-      
-      <div className="p-4 border-t border-gray-800">
-        <button
-          onClick={async () => {
-            try {
-              const res = await fetchWithAuth("/auth/logout", { method: "POST" });
-              if (res.ok) {
-                window.location.href = "/login";
+              } catch (err) {
+                console.error(err);
+                addToast("Network error during sign out", "error");
               }
-            } catch (err) {
-              console.error(err);
-            }
-          }}
-          className="w-full py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-semibold transition flex items-center justify-center gap-2"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-          Logout
-        </button>
+            }}
+            className="w-full py-2.5 px-3 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/50 rounded-md text-sm font-medium transition-colors flex items-center gap-2"
+          >
+            <LogOut size={16} />
+            Sign Out
+          </button>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
