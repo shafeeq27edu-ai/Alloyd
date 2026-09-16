@@ -22,7 +22,7 @@ TestingSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=
 
 @pytest_asyncio.fixture(scope="session")
 def event_loop():
-    loop = asyncio.get_event_loop_policy().new_event_loop()
+    loop = asyncio.new_event_loop()
     yield loop
     loop.close()
 

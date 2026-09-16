@@ -12,3 +12,4 @@ python-multipart
 anthropic
 pyyaml
 google-generativeai
+pytest-asyncio
