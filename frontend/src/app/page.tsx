@@ -9,7 +9,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Menu, Settings, SendHorizontal, AlertCircle } from "lucide-react";
 import Select from "@/components/Select";
-import { useToast } from "@/components/Toast";
+
 
 type Message = { role: string; content: string; provider?: string; model?: string; mode?: string; category?: string };
 
@@ -26,8 +26,6 @@ export default function ChatPage() {
   const [selectedProvider, setSelectedProvider] = useState("groq");
   const [selectedModel, setSelectedModel] = useState("llama3-8b-8192");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const { addToast } = useToast();
-  
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
 
   useEffect(() => {

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { fetchWithAuth } from "@/lib/api";
 import { MessageSquarePlus, Trash2, LogOut, X } from "lucide-react";
 import { useToast } from "@/components/Toast";
+import { useRouter } from "next/navigation";
 
 type ConversationInfo = {
   id: string;
@@ -26,6 +27,7 @@ export default function Sidebar({
 }) {
   const [conversations, setConversations] = useState<ConversationInfo[]>([]);
   const { addToast } = useToast();
+  const router = useRouter();
 
   useEffect(() => {
     const loadConversations = async () => {
@@ -134,7 +136,7 @@ export default function Sidebar({
               try {
                 const res = await fetchWithAuth("/auth/logout", { method: "POST" });
                 if (res.ok) {
-                  window.location.href = "/login";
+                  router.push("/login");
                 } else {
                   addToast("Failed to sign out", "error");
                 }

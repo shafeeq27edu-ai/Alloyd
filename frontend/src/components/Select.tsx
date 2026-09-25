@@ -41,6 +41,7 @@ export default function Select({
 
   useEffect(() => {
     if (isOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFocusedIndex(options.findIndex(o => o.value === value));
     }
   }, [isOpen, value, options]);
