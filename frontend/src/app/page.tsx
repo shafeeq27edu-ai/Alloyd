@@ -7,9 +7,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { Menu, Settings, SendHorizontal, AlertCircle } from "lucide-react";
+import { Menu, Settings, SendHorizontal, AlertCircle, Sparkles } from "lucide-react";
 import Select from "@/components/Select";
-
+import { useToast } from "@/components/Toast";
 
 type Message = { role: string; content: string; provider?: string; model?: string; mode?: string; category?: string };
 
@@ -21,6 +21,7 @@ export default function ChatPage() {
   const router = useRouter();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { addToast } = useToast();
 
   const [mode, setMode] = useState("auto");
   const [selectedProvider, setSelectedProvider] = useState("groq");
@@ -141,11 +142,10 @@ export default function ChatPage() {
                   }
                   return newMessages;
                 });
-              } catch {}
+              } catch { /* ignore parse errors */ }
             } else if (currentEvent === "error") {
               try {
                 const errData = JSON.parse(dataStr);
-                // Map known codes to user-friendly messages
                 let userMsg = errData.detail;
                 if (typeof errData.detail === 'object' && errData.detail.code) {
                   const codes: Record<string, string> = {
@@ -158,6 +158,8 @@ export default function ChatPage() {
                   userMsg = codes[errData.detail.code] || errData.detail.message;
                 }
                 setError(userMsg);
+                // Also fire a toast for streaming errors so they're visible
+                addToast(typeof userMsg === 'string' ? userMsg : "An error occurred", "error");
               } catch {
                 setError(dataStr);
               }
@@ -173,13 +175,14 @@ export default function ChatPage() {
                   }
                   return newMessages;
                 });
-              } catch {}
+              } catch { /* ignore parse errors */ }
             }
           }
         }
       }
     } catch {
-      setError("Network error");
+      setError("Network error — unable to reach the server.");
+      addToast("Network error — please check your connection.", "error");
     } finally {
       setIsStreaming(false);
     }
@@ -209,21 +212,29 @@ export default function ChatPage() {
         onClose={() => setIsSidebarOpen(false)}
       />
       
-      <div className="flex-1 flex flex-col h-full relative">
-        <header className="flex justify-between items-center px-6 py-4 z-10 w-full">
-          <div className="flex items-center gap-3">
-            <button onClick={() => setIsSidebarOpen(true)} className="md:hidden p-1.5 -ml-2 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/50 rounded-md transition-colors" aria-label="Open sidebar">
+      <div className="flex-1 flex flex-col h-full relative min-w-0">
+        <header className="flex justify-between items-center px-4 sm:px-6 py-4 z-10 w-full">
+          <div className="flex items-center gap-3 min-w-0">
+            <button 
+              onClick={() => setIsSidebarOpen(true)} 
+              className="md:hidden p-2 -ml-1 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/50 rounded-md transition-colors focus-visible:ring-2 focus-visible:ring-zinc-500 outline-none" 
+              aria-label="Open sidebar"
+            >
               <Menu size={18} />
             </button>
             <h1 className="text-sm font-semibold tracking-wide text-zinc-300">Alloyd</h1>
-            <span className="text-zinc-600">/</span>
+            <span className="text-zinc-600" aria-hidden="true">/</span>
             <span className="text-sm text-zinc-500 truncate max-w-[200px]">
               {currentConversationId ? "Active Session" : "New Session"}
             </span>
           </div>
         
-          <div className="flex items-center gap-3">
-            <button onClick={() => router.push("/settings")} className="p-2 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/50 rounded-md transition-colors" aria-label="Settings">
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => router.push("/settings")} 
+              className="p-2 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/50 rounded-md transition-colors focus-visible:ring-2 focus-visible:ring-zinc-500 outline-none" 
+              aria-label="Settings"
+            >
               <Settings size={18} />
             </button>
           </div>
@@ -235,12 +246,13 @@ export default function ChatPage() {
               <h2 className="text-2xl font-medium text-zinc-100 tracking-tight mb-2">Good afternoon.</h2>
               <p className="text-zinc-500 mb-10 text-sm">What would you like to build today?</p>
               
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full" role="list" aria-label="Quick start skills">
                 {skills.map(skill => (
                   <button 
                     key={skill.name}
+                    role="listitem"
                     onClick={() => handleSend(skill.prompt)}
-                    className="p-4 bg-zinc-900/40 hover:bg-zinc-800/60 border border-zinc-800/60 hover:border-zinc-700 rounded-xl text-left transition-all group flex flex-col gap-1"
+                    className="p-4 bg-zinc-900/40 hover:bg-zinc-800/60 border border-zinc-800/60 hover:border-zinc-700 rounded-xl text-left transition-all group flex flex-col gap-1 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950 outline-none"
                   >
                     <div className="font-medium text-sm text-zinc-300 group-hover:text-zinc-100 transition-colors">{skill.name}</div>
                     <div className="text-xs text-zinc-500 truncate font-mono">{skill.prompt.replace(/^@\w+\s+/, '')}</div>
@@ -257,21 +269,22 @@ export default function ChatPage() {
                       {m.content}
                     </div>
                   ) : (
-                    <div className="flex flex-col w-full">
+                    <div className="flex flex-col w-full min-w-0">
                       {m.provider && (
                         <div className="flex items-center gap-2 mb-2 text-xs font-mono text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity">
                           <span className="uppercase text-zinc-400 font-medium">{m.provider}</span>
-                          <span className="text-zinc-700">/</span>
+                          <span className="text-zinc-700" aria-hidden="true">/</span>
                           <span>{m.model}</span>
                           {m.category && (
                             <>
-                              <span className="text-zinc-700">/</span>
+                              <span className="text-zinc-700" aria-hidden="true">/</span>
                               <span className="text-zinc-400">{m.category}</span>
                             </>
                           )}
                           {m.mode === 'auto' && (
-                            <span className="ml-2 flex items-center gap-1 text-zinc-400 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2l2.4 7.6 7.6 2.4-7.6 2.4-2.4 7.6-2.4-7.6-7.6-2.4 7.6-2.4z"/></svg> Auto
+                            <span className="ml-2 flex items-center gap-1 text-zinc-400 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-[11px]">
+                              <Sparkles size={10} />
+                              Auto
                             </span>
                           )}
                         </div>
@@ -312,9 +325,13 @@ export default function ChatPage() {
             </div>
           )}
           {error && (
-            <div className="flex items-start gap-3 p-4 rounded-xl bg-red-950/50 border border-red-900/50 text-red-400 self-center w-full max-w-2xl mt-4 text-[13px] font-medium leading-snug" aria-live="assertive">
-              <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
-              <span>{error}</span>
+            <div 
+              className="flex items-start gap-3 p-4 rounded-xl bg-red-950/50 border border-red-900/50 text-red-300 self-center w-full max-w-2xl mt-4 text-[13px] font-medium leading-snug" 
+              role="alert"
+              aria-live="assertive"
+            >
+              <AlertCircle size={16} className="mt-0.5 flex-shrink-0 text-red-400" />
+              <span>{typeof error === 'string' ? error : 'An unexpected error occurred.'}</span>
             </div>
           )}
           <div ref={messagesEndRef} />
@@ -329,11 +346,12 @@ export default function ChatPage() {
                 value={mode} 
                 onChange={setMode}
                 variant="inline"
+                label="Routing mode"
               />
               
               {mode === "manual" && (
                 <div className="flex items-center gap-2 text-xs font-mono text-zinc-500">
-                  <span>/</span>
+                  <span aria-hidden="true">/</span>
                   <Select 
                     options={Object.keys(models).map(p => ({value: p, label: p}))}
                     value={selectedProvider} 
@@ -342,20 +360,24 @@ export default function ChatPage() {
                       setSelectedModel(models[val][0]);
                     }}
                     variant="inline"
+                    label="Provider"
                   />
-                  <span>/</span>
+                  <span aria-hidden="true">/</span>
                   <Select 
                     options={models[selectedProvider].map(m => ({value: m, label: m}))}
                     value={selectedModel} 
                     onChange={setSelectedModel}
                     variant="inline"
+                    label="Model"
                   />
                 </div>
               )}
             </div>
 
             <div className="relative flex items-end">
+              <label htmlFor="chat-input" className="sr-only">Message input</label>
               <textarea
+                id="chat-input"
                 ref={textareaRef}
                 value={input} 
                 onChange={handleInput}
@@ -374,7 +396,7 @@ export default function ChatPage() {
               <button 
                 type="submit" 
                 disabled={isStreaming || !input.trim()}
-                className="mb-3 mr-3 p-2.5 bg-zinc-100 rounded-xl text-zinc-900 hover:bg-white disabled:opacity-30 disabled:hover:bg-zinc-100 transition-all flex-shrink-0"
+                className="mb-3 mr-3 p-2.5 bg-zinc-100 rounded-xl text-zinc-900 hover:bg-white disabled:opacity-30 disabled:hover:bg-zinc-100 transition-all flex-shrink-0 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 outline-none cursor-pointer"
                 aria-label="Send message"
               >
                 <SendHorizontal size={18} />

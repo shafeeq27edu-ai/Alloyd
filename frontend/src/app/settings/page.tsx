@@ -4,7 +4,7 @@ import { fetchWithAuth } from "@/lib/api";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/components/Toast";
 import Select from "@/components/Select";
-import { Settings2, X } from "lucide-react";
+import { Settings2, X, Trash2 } from "lucide-react";
 
 function SettingsContent() {
   const [provider, setProvider] = useState("groq");
@@ -34,7 +34,10 @@ function SettingsContent() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!key) return;
+    if (!key) {
+      addToast("Please enter an API key", "error");
+      return;
+    }
     try {
       const res = await fetchWithAuth("/keys", {
         method: "POST",
@@ -52,11 +55,29 @@ function SettingsContent() {
     }
   };
 
+  const handleDeleteKey = async (providerName: string) => {
+    if (!confirm(`Remove ${providerName} key?`)) return;
+    try {
+      const res = await fetchWithAuth(`/keys/${providerName}`, { method: "DELETE" });
+      if (res.ok) {
+        fetchKeys();
+        addToast("Key removed", "success");
+      } else {
+        addToast("Failed to remove key", "error");
+      }
+    } catch {
+      addToast("Network error", "error");
+    }
+  };
+
   const providerOptions = [
     { value: "groq", label: "Groq" },
     { value: "gemini", label: "Google Gemini" },
     { value: "anthropic", label: "Anthropic (Claude)" }
   ];
+
+  // Improved input classes — same contrast fix as login
+  const inputClasses = "w-full px-4 py-2.5 rounded-lg bg-zinc-800/40 border border-zinc-700/50 focus:border-zinc-500 focus:bg-zinc-800/60 focus:ring-2 focus:ring-zinc-500/30 outline-none text-zinc-100 text-sm transition-all placeholder:text-zinc-500 font-mono shadow-inner shadow-zinc-950/20";
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-950 text-zinc-50 font-sans px-4">
@@ -66,7 +87,11 @@ function SettingsContent() {
             <Settings2 size={20} className="text-zinc-400" />
             Workspace Settings
           </h1>
-          <button onClick={() => router.push("/")} className="text-zinc-500 hover:text-zinc-200 transition-colors p-1" aria-label="Close settings">
+          <button 
+            onClick={() => router.push("/")} 
+            className="text-zinc-500 hover:text-zinc-200 transition-colors p-1.5 rounded-md hover:bg-zinc-800/50 focus-visible:ring-2 focus-visible:ring-zinc-500 outline-none" 
+            aria-label="Close settings"
+          >
             <X size={18} />
           </button>
         </div>
@@ -83,34 +108,21 @@ function SettingsContent() {
           {configuredKeys.length === 0 ? (
             <p className="text-zinc-500 text-sm">No keys configured yet.</p>
           ) : (
-            <ul className="space-y-2.5">
+            <ul className="space-y-2.5" aria-label="Configured API keys">
               {configuredKeys.map((k, i) => (
                 <li key={i} className="flex justify-between items-center text-sm px-3 py-2.5 bg-zinc-950/50 border border-zinc-800/50 rounded-lg">
                   <span className="capitalize font-medium text-zinc-200">{k.provider_name}</span>
                   <div className="flex items-center gap-3">
                     <span className="text-zinc-400 flex items-center gap-1.5 text-xs font-mono">
-                      <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
+                      <span className="w-1.5 h-1.5 bg-green-500 rounded-full" aria-hidden="true"></span>
                       {k.masked_key}
                     </span>
                     <button 
-                      onClick={async () => {
-                        if (confirm(`Remove ${k.provider_name} key?`)) {
-                          try {
-                            const res = await fetchWithAuth(`/keys/${k.provider_name}`, { method: "DELETE" });
-                            if (res.ok) {
-                              fetchKeys();
-                              addToast("Key removed", "success");
-                            } else {
-                              addToast("Failed to remove key", "error");
-                            }
-                          } catch {
-                            addToast("Network error", "error");
-                          }
-                        }
-                      }}
-                      className="text-zinc-500 hover:text-red-400 text-xs transition-colors"
+                      onClick={() => handleDeleteKey(k.provider_name)}
+                      className="text-zinc-500 hover:text-red-400 transition-colors p-1 rounded-md focus-visible:ring-2 focus-visible:ring-zinc-500 outline-none"
+                      aria-label={`Remove ${k.provider_name} key`}
                     >
-                      Remove
+                      <Trash2 size={14} />
                     </button>
                   </div>
                 </li>
@@ -126,14 +138,25 @@ function SettingsContent() {
               options={providerOptions}
               value={provider}
               onChange={setProvider}
+              label="Provider"
             />
-            <input 
-              type="password" 
-              placeholder="API Key" 
-              className="w-full px-3 py-2.5 rounded-lg bg-zinc-950/50 border border-zinc-800 focus:border-zinc-500 outline-none text-zinc-100 text-sm transition-colors placeholder:text-zinc-600 font-mono shadow-sm" 
-              value={key} onChange={e => setKey(e.target.value)}
-            />
-            <button type="submit" className="w-full py-2.5 mt-1 bg-zinc-100 hover:bg-white text-zinc-950 font-medium rounded-lg transition-colors text-sm shadow-sm disabled:opacity-50">Save Provider Key</button>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="api-key-input" className="text-xs font-medium text-zinc-400 uppercase tracking-wider">API Key</label>
+              <input 
+                id="api-key-input"
+                type="password" 
+                placeholder="sk-..." 
+                className={inputClasses} 
+                value={key} onChange={e => setKey(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <button 
+              type="submit" 
+              className="w-full py-2.5 mt-1 bg-zinc-100 hover:bg-white text-zinc-950 font-medium rounded-lg transition-colors text-sm shadow-sm disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 outline-none cursor-pointer"
+            >
+              Save Provider Key
+            </button>
           </div>
         </form>
       </div>
