@@ -8,7 +8,7 @@ from typing import List, Optional
 from app.db.database import get_db
 from app.db.models import ProviderKey, User, Conversation, Message
 from app.core.encryption import decrypt_key
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, verify_csrf
 from app.providers.registry import ProviderRegistry
 from app.core.router import RuleRouter
 from app.core.classifier import TaskClassifier
@@ -24,7 +24,7 @@ class ChatRequest(BaseModel):
     message: str
     conversation_id: Optional[str] = None
 
-@router.post("/")
+@router.post("/", dependencies=[Depends(verify_csrf)])
 async def stream_chat(
     req: ChatRequest,
     current_user: User = Depends(get_current_user),

@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from app.db.database import get_db
 from app.db.models import ProviderKey, User
 from app.core.encryption import encrypt_key
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, verify_csrf
 
 router = APIRouter()
 
@@ -13,7 +13,7 @@ class KeyCreate(BaseModel):
     provider_name: str
     key: str
 
-@router.post("/", status_code=201)
+@router.post("/", status_code=201, dependencies=[Depends(verify_csrf)])
 async def add_provider_key(
     key_in: KeyCreate,
     current_user: User = Depends(get_current_user),
@@ -72,7 +72,7 @@ async def get_provider_keys(
         
     return {"keys": masked_keys}
 
-@router.delete("/{provider_name}", status_code=204)
+@router.delete("/{provider_name}", status_code=204, dependencies=[Depends(verify_csrf)])
 async def delete_provider_key(
     provider_name: str,
     current_user: User = Depends(get_current_user),

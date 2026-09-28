@@ -8,7 +8,8 @@ from app.db.models import User
 from app.core.security import verify_password, get_password_hash, create_access_token
 from datetime import timedelta
 from app.config import settings
-from app.api.deps import get_current_user
+import uuid
+from app.api.deps import get_current_user, verify_csrf
 
 router = APIRouter()
 
@@ -19,6 +20,18 @@ class UserCreate(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+
+@router.get("/csrf")
+async def get_csrf_token(response: Response):
+    token = str(uuid.uuid4())
+    response.set_cookie(
+        key="csrf_token",
+        value=token,
+        httponly=True,
+        secure=not settings.DEBUG,
+        samesite="lax"
+    )
+    return {"csrf_token": token}
 
 @router.post("/register", response_model=Token)
 async def register(user_in: UserCreate, response: Response, db: AsyncSession = Depends(get_db)):
@@ -41,7 +54,7 @@ async def register(user_in: UserCreate, response: Response, db: AsyncSession = D
         key="access_token",
         value=f"Bearer {access_token}",
         httponly=True,
-        secure=False, # Set to True in production
+        secure=not settings.DEBUG,
         samesite="lax",
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
     )
@@ -66,18 +79,24 @@ async def login_for_access_token(response: Response, form_data: OAuth2PasswordRe
         key="access_token",
         value=f"Bearer {access_token}",
         httponly=True,
-        secure=False, # Set to True in production
+        secure=not settings.DEBUG,
         samesite="lax",
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-@router.post("/logout")
+@router.post("/logout", dependencies=[Depends(verify_csrf)])
 async def logout(response: Response):
     response.delete_cookie(
         key="access_token",
         httponly=True,
-        secure=False,
+        secure=not settings.DEBUG,
+        samesite="lax"
+    )
+    response.delete_cookie(
+        key="csrf_token",
+        httponly=True,
+        secure=not settings.DEBUG,
         samesite="lax"
     )
     return {"success": True}

@@ -5,7 +5,7 @@ from sqlalchemy import desc
 from typing import List
 from app.db.database import get_db
 from app.db.models import Conversation, Message, User
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, verify_csrf
 
 router = APIRouter()
 
@@ -69,7 +69,7 @@ async def get_messages(
         ]
     }
 
-@router.delete("/{conversation_id}")
+@router.delete("/{conversation_id}", dependencies=[Depends(verify_csrf)])
 async def delete_conversation(
     conversation_id: str,
     current_user: User = Depends(get_current_user),

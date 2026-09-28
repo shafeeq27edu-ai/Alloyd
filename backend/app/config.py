@@ -6,6 +6,12 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "super_secret_key_for_testing_only" # In production, use a strong key
     ENCRYPTION_KEY: str = "VlYp1_8P_aIqTf8w4P5q9G_oV7qHk_4fB_3oU_1Yg_8=" # For Fernet
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7 # 7 days
+    DEBUG: bool = True
+    ALLOWED_ORIGINS: str = "http://localhost:3000"
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",") if origin.strip()]
 
     class Config:
         env_file = ".env"
