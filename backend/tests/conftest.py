@@ -14,8 +14,15 @@ from app.db.models import User
 from app.providers.base import BaseProviderAdapter, ModelDefinition
 from app.providers.registry import ProviderRegistry
 from app.core.errors import ProviderError, ErrorCode
+from app.core.rate_limit import limiter
 from typing import AsyncGenerator, List, Dict, Tuple
 import json
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    limiter.state.clear()
+    yield
+
 
 engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
 TestingSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
@@ -70,12 +77,22 @@ async def test_user_2(db_session):
 
 @pytest_asyncio.fixture
 async def auth_client(async_client, test_user):
+    # Fetch CSRF token first
+    csrf_response = await async_client.get("/api/auth/csrf")
+    csrf_token = csrf_response.json()["csrf_token"]
+
     response = await async_client.post(
         "/api/auth/token",
-        data={"username": "test@example.com", "password": "password"}
+        data={"username": "test@example.com", "password": "password"},
+        headers={"X-CSRF-Token": csrf_token, "Origin": "http://localhost:3000"}
     )
     token = response.json()["access_token"]
-    async_client.headers = {"Authorization": f"Bearer {token}"}
+    
+    async_client.headers.update({
+        "Authorization": f"Bearer {token}",
+        "X-CSRF-Token": csrf_token,
+        "Origin": "http://localhost:3000"
+    })
     return async_client
 
 class MockAdapter(BaseProviderAdapter):

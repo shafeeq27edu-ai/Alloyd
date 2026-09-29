@@ -9,6 +9,14 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     ALLOWED_ORIGINS: str = "http://localhost:3000"
 
+    # Rate Limiting Settings
+    LOGIN_RATE_LIMIT: int = 5
+    LOGIN_RATE_WINDOW: int = 60
+    REGISTRATION_RATE_LIMIT: int = 3
+    REGISTRATION_RATE_WINDOW: int = 3600
+    CHAT_RATE_LIMIT: int = 15
+    CHAT_RATE_WINDOW: int = 60
+
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",") if origin.strip()]

@@ -10,6 +10,8 @@ from datetime import timedelta
 from app.config import settings
 import uuid
 from app.api.deps import get_current_user, verify_csrf
+from app.core.rate_limit import check_rate_limit, get_client_ip
+from fastapi import Request
 
 router = APIRouter()
 
@@ -34,7 +36,12 @@ async def get_csrf_token(response: Response):
     return {"csrf_token": token}
 
 @router.post("/register", response_model=Token)
-async def register(user_in: UserCreate, response: Response, db: AsyncSession = Depends(get_db)):
+async def register(request: Request, user_in: UserCreate, response: Response, db: AsyncSession = Depends(get_db)):
+    await check_rate_limit(
+        f"register:{get_client_ip(request)}",
+        settings.REGISTRATION_RATE_LIMIT,
+        settings.REGISTRATION_RATE_WINDOW
+    )
     result = await db.execute(select(User).where(User.email == user_in.email))
     if result.scalars().first():
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -61,7 +68,12 @@ async def register(user_in: UserCreate, response: Response, db: AsyncSession = D
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.post("/token", response_model=Token)
-async def login_for_access_token(response: Response, form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+async def login_for_access_token(request: Request, response: Response, form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+    await check_rate_limit(
+        f"login:{get_client_ip(request)}:{form_data.username}",
+        settings.LOGIN_RATE_LIMIT,
+        settings.LOGIN_RATE_WINDOW
+    )
     result = await db.execute(select(User).where(User.email == form_data.username))
     user = result.scalars().first()
     if not user or not verify_password(form_data.password, user.hashed_password):

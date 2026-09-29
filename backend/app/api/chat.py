@@ -13,6 +13,8 @@ from app.providers.registry import ProviderRegistry
 from app.core.router import RuleRouter
 from app.core.classifier import TaskClassifier
 from app.core.title_generator import generate_and_update_title
+from app.core.rate_limit import check_rate_limit
+from app.config import settings
 import asyncio
 
 router = APIRouter()
@@ -30,6 +32,13 @@ async def stream_chat(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    # Enforce Rate Limiting
+    await check_rate_limit(
+        f"chat:{current_user.id}",
+        settings.CHAT_RATE_LIMIT,
+        settings.CHAT_RATE_WINDOW
+    )
+
     # Setup conversation
     if req.conversation_id:
         conv_result = await db.execute(
