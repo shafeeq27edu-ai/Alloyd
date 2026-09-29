@@ -3,13 +3,13 @@ uvicorn
 sqlalchemy
 alembic
 asyncpg
-python-jose[cryptography]
-passlib[bcrypt]
+PyJWT
+bcrypt
 cryptography
 groq
 pydantic-settings
 python-multipart
 anthropic
 pyyaml
-google-generativeai
+google-genai
 pytest-asyncio

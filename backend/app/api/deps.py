@@ -1,5 +1,5 @@
 from fastapi import Depends, HTTPException, status, Request
-from jose import JWTError, jwt
+import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.config import settings
@@ -34,7 +34,7 @@ async def get_current_user(token: str = Depends(get_token_from_cookie), db: Asyn
         email: str | None = payload.get("sub")
         if email is None:
             raise credentials_exception
-    except JWTError:
+    except jwt.InvalidTokenError:
         raise credentials_exception
         
     result = await db.execute(select(User).where(User.email == email))
