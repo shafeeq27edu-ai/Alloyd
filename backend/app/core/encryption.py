@@ -1,10 +1,17 @@
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, MultiFernet
 from app.config import settings
 
 # Initialize fernet with the master encryption key from settings
 # Settings validation ensures this key is exactly 32 url-safe base64-encoded bytes
 try:
-    _cipher_suite = Fernet(settings.ENCRYPTION_KEY.encode('utf-8'))
+    active_fernet = Fernet(settings.ENCRYPTION_KEY.encode('utf-8'))
+    fernets = [active_fernet]
+    
+    if settings.PREVIOUS_ENCRYPTION_KEY:
+        previous_fernet = Fernet(settings.PREVIOUS_ENCRYPTION_KEY.encode('utf-8'))
+        fernets.append(previous_fernet)
+        
+    _cipher_suite = MultiFernet(fernets)
 except Exception as e:
     raise RuntimeError(f"Invalid ENCRYPTION_KEY: {e}")
 

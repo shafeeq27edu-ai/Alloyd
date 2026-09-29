@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     SECRET_KEY: str
     ENCRYPTION_KEY: str
+    PREVIOUS_ENCRYPTION_KEY: str | None = None
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7 # 7 days
     DEBUG: bool = True
     ALLOWED_ORIGINS: str = "http://localhost:3000"
@@ -32,9 +33,11 @@ class Settings(BaseSettings):
             raise ValueError("SECRET_KEY cannot be a default or placeholder value.")
         return v
 
-    @field_validator("ENCRYPTION_KEY")
+    @field_validator("ENCRYPTION_KEY", "PREVIOUS_ENCRYPTION_KEY")
     @classmethod
-    def validate_encryption_key(cls, v: str) -> str:
+    def validate_encryption_key(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
         if v == "VlYp1_8P_aIqTf8w4P5q9G_oV7qHk_4fB_3oU_1Yg_8=" or v == "replace_with_32_byte_url_safe_base64_string=":
             raise ValueError("ENCRYPTION_KEY cannot be a default or placeholder value.")
         try:
