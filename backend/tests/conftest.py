@@ -4,8 +4,11 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 import asyncio
 import os
+from cryptography.fernet import Fernet
 
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+os.environ["SECRET_KEY"] = "this_is_a_mock_secret_key_for_tests_that_is_long_enough"
+os.environ["ENCRYPTION_KEY"] = Fernet.generate_key().decode()
 
 from app.main import app
 from app.db.database import get_db, Base
