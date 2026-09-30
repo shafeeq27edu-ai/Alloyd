@@ -57,8 +57,8 @@ export default function LoginPage() {
       setError("Please provide both email and password.");
       return;
     }
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
+    if (password.length < 12) {
+      setError("Password must be at least 12 characters.");
       return;
     }
     setIsLoading(true);

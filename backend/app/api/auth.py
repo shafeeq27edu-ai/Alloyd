@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from app.db.database import get_db
 from app.db.models import User
 from app.core.security import verify_password, get_password_hash, create_access_token
@@ -18,6 +18,15 @@ router = APIRouter()
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if len(v) < 12:
+            raise ValueError("Password must be at least 12 characters long")
+        if len(v.encode('utf-8')) > 72:
+            raise ValueError("Password is too long (maximum 72 bytes)")
+        return v
 
 class Token(BaseModel):
     access_token: str

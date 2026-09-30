@@ -12,7 +12,7 @@ async def test_login_rate_limit(async_client: AsyncClient, test_user: dict):
     for _ in range(settings.LOGIN_RATE_LIMIT):
         response = await async_client.post(
             "/api/auth/token",
-            data={"username": test_user.email, "password": "wrongpassword"},
+            data={"username": test_user.email, "password": "wrong-password-123"},
             headers={"X-Forwarded-For": "1.2.3.4"}
         )
         assert response.status_code == 401
@@ -20,7 +20,7 @@ async def test_login_rate_limit(async_client: AsyncClient, test_user: dict):
     # Next request should be rate limited
     response = await async_client.post(
         "/api/auth/token",
-        data={"username": test_user.email, "password": "wrongpassword"},
+        data={"username": test_user.email, "password": "wrong-password-123"},
         headers={"X-Forwarded-For": "1.2.3.4"}
     )
     assert response.status_code == 429
@@ -32,14 +32,14 @@ async def test_register_rate_limit(async_client: AsyncClient):
     for i in range(settings.REGISTRATION_RATE_LIMIT):
         response = await async_client.post(
             "/api/auth/register",
-            json={"email": f"test{i}@example.com", "password": "testpassword123"},
+            json={"email": f"test{i}@example.com", "password": "test-password-123"},
             headers={"X-Forwarded-For": "5.6.7.8"}
         )
         assert response.status_code == 200
 
     response = await async_client.post(
         "/api/auth/register",
-        json={"email": f"test_fail@example.com", "password": "testpassword123"},
+        json={"email": f"test_fail@example.com", "password": "test-password-123"},
         headers={"X-Forwarded-For": "5.6.7.8"}
     )
     assert response.status_code == 429

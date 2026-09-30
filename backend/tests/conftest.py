@@ -64,7 +64,7 @@ async def async_client(override_get_db):
 
 @pytest_asyncio.fixture
 async def test_user(db_session):
-    user = User(email="test@example.com", hashed_password=get_password_hash("password"))
+    user = User(email="test@example.com", hashed_password=get_password_hash("test-password-123"))
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)
@@ -72,7 +72,7 @@ async def test_user(db_session):
 
 @pytest_asyncio.fixture
 async def test_user_2(db_session):
-    user = User(email="other@example.com", hashed_password=get_password_hash("password"))
+    user = User(email="other@example.com", hashed_password=get_password_hash("test-password-123"))
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)
@@ -86,7 +86,7 @@ async def auth_client(async_client, test_user):
 
     response = await async_client.post(
         "/api/auth/token",
-        data={"username": "test@example.com", "password": "password"},
+        data={"username": "test@example.com", "password": "test-password-123"},
         headers={"X-CSRF-Token": csrf_token, "Origin": "http://localhost:3000"}
     )
     token = response.json()["access_token"]
