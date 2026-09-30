@@ -55,3 +55,34 @@ async def test_delete_other_user_key(auth_client, db_session, test_user_2):
     # user 1 tries to delete
     response = await auth_client.delete("/api/keys/groq")
     assert response.status_code == 404
+
+@pytest.mark.asyncio
+async def test_add_invalid_key_does_not_replace(auth_client, db_session, test_user):
+    # Setup valid key
+    response = await auth_client.post(
+        "/api/keys/",
+        json={"provider_name": "groq", "key": "mysecretkey"}
+    )
+    assert response.status_code == 201
+
+    # Try invalid key
+    response = await auth_client.post(
+        "/api/keys/",
+        json={"provider_name": "groq", "key": "invalid"}
+    )
+    assert response.status_code == 400
+    assert "Invalid API key" in response.json()["detail"]
+
+    # Verify old key remains
+    result = await db_session.execute(select(ProviderKey).where(ProviderKey.user_id == test_user.id))
+    key = result.scalars().first()
+    assert key.key_hint == "tkey"
+
+@pytest.mark.asyncio
+async def test_add_timeout_key_does_not_replace(auth_client, db_session, test_user):
+    response = await auth_client.post(
+        "/api/keys/",
+        json={"provider_name": "groq", "key": "timeout"}
+    )
+    assert response.status_code == 502
+    assert "Could not verify" in response.json()["detail"]

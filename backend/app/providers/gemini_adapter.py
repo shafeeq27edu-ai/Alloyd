@@ -40,6 +40,14 @@ class GeminiAdapter(BaseProviderAdapter):
             gemini_messages.append({"role": role, "parts": [{"text": m["content"]}]})
         return gemini_messages
 
+    async def validate_key(self, api_key: str) -> None:
+        client = genai.Client(api_key=api_key)
+        try:
+            # Using get for a specific model is very cheap/fast
+            await client.aio.models.get(model='models/gemini-1.5-flash')
+        except Exception as e:
+            raise self._map_error(e)
+
     async def send_message(self, api_key: str, model_id: str, messages: List[Dict[str, str]]) -> str:
         client = genai.Client(api_key=api_key)
         try:

@@ -26,6 +26,13 @@ class AnthropicAdapter(BaseProviderAdapter):
             return ProviderError(ErrorCode.BAD_REQUEST, self.provider_name, f"Anthropic API Error: {str(e)}", False)
         return ProviderError(ErrorCode.UNKNOWN, self.provider_name, str(e), False)
 
+    async def validate_key(self, api_key: str) -> None:
+        client = AsyncAnthropic(api_key=api_key)
+        try:
+            await client.models.list()
+        except Exception as e:
+            raise self._map_error(e)
+
     async def send_message(self, api_key: str, model_id: str, messages: List[Dict[str, str]]) -> str:
         client = AsyncAnthropic(api_key=api_key)
         try:

@@ -48,7 +48,16 @@ function SettingsContent() {
         fetchKeys();
         addToast("Key saved successfully", "success");
       } else {
-        addToast("Failed to save key", "error");
+        const data = await res.json().catch(() => null);
+        if (res.status === 400) {
+          addToast(data?.detail || "Invalid API key. Check the key and try again.", "error");
+        } else if (res.status === 429) {
+          addToast("Provider rate limit reached. Try again later.", "error");
+        } else if (res.status === 502 || res.status === 504 || res.status === 503) {
+          addToast("Could not verify the key right now.", "error");
+        } else {
+          addToast("Failed to save key", "error");
+        }
       }
     } catch {
       addToast("Network error saving key", "error");

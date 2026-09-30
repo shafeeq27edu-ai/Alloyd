@@ -1,11 +1,37 @@
 import pytest
 import json
 from httpx import AsyncClient
+from app.db.models import ProviderKey
+from app.core.encryption import encrypt_key
+from sqlalchemy.future import select
+
+async def _add_key(db_session, user_id: str, provider: str, key_value: str):
+    """Insert a provider key directly into the database, bypassing API validation.
+    This allows chat tests to set up special mock key values (e.g., 'invalid',
+    'rate_limit') that would be rejected by validate_key."""
+    result = await db_session.execute(
+        select(ProviderKey).where(
+            ProviderKey.user_id == user_id,
+            ProviderKey.provider_name == provider
+        )
+    )
+    existing = result.scalars().first()
+    encrypted = encrypt_key(key_value)
+    hint = key_value[-4:] if len(key_value) > 4 else ("*" * len(key_value))
+    if existing:
+        existing.encrypted_key = encrypted
+        existing.key_hint = hint
+    else:
+        db_session.add(ProviderKey(
+            user_id=user_id, provider_name=provider,
+            encrypted_key=encrypted, key_hint=hint
+        ))
+    await db_session.commit()
 
 @pytest.mark.asyncio
-async def test_chat_auto_routing(auth_client, db_session):
+async def test_chat_auto_routing(auth_client, db_session, test_user):
     # 1. primary provider success -> no fallback
-    await auth_client.post("/api/keys/", json={"provider_name": "groq", "key": "validkey"})
+    await _add_key(db_session, test_user.id, "groq", "validkey")
     
     response = await auth_client.post(
         "/api/chat/",
@@ -21,8 +47,8 @@ async def test_chat_auto_routing(auth_client, db_session):
     assert "event: done" in text
 
 @pytest.mark.asyncio
-async def test_chat_manual_override(auth_client):
-    await auth_client.post("/api/keys/", json={"provider_name": "mock", "key": "validkey"})
+async def test_chat_manual_override(auth_client, db_session, test_user):
+    await _add_key(db_session, test_user.id, "mock", "validkey")
     
     response = await auth_client.post(
         "/api/chat/",
@@ -35,8 +61,8 @@ async def test_chat_manual_override(auth_client):
     assert '"provider": "mock"' in text
 
 @pytest.mark.asyncio
-async def test_chat_skills_injection(auth_client):
-    await auth_client.post("/api/keys/", json={"provider_name": "anthropic", "key": "validkey"})
+async def test_chat_skills_injection(auth_client, db_session, test_user):
+    await _add_key(db_session, test_user.id, "anthropic", "validkey")
     
     response = await auth_client.post(
         "/api/chat/",
@@ -51,26 +77,26 @@ async def test_chat_skills_injection(auth_client):
     assert "Generate and evaluate ideas" in text
 
 @pytest.mark.asyncio
-async def test_chat_timeout_fallback(auth_client):
+async def test_chat_timeout_fallback(auth_client, db_session, test_user):
     # 2. primary timeout -> fallback
-    await auth_client.post("/api/keys/", json={"provider_name": "groq", "key": "timeout"})
-    await auth_client.post("/api/keys/", json={"provider_name": "gemini", "key": "validkey"})
+    await _add_key(db_session, test_user.id, "groq", "timeout")
+    await _add_key(db_session, test_user.id, "gemini", "validkey")
     
     response = await auth_client.post(
         "/api/chat/",
         json={"mode": "auto", "message": "hello"}
     )
     text = response.text
-    # Groq failed, should route again to anthropic
+    # Groq failed, should route again to gemini
     assert text.count("event: routing") == 2
     assert '"provider": "gemini"' in text
     assert "mock response" in text
 
 @pytest.mark.asyncio
-async def test_chat_rate_limit_fallback(auth_client):
+async def test_chat_rate_limit_fallback(auth_client, db_session, test_user):
     # 3. primary rate limit -> fallback
-    await auth_client.post("/api/keys/", json={"provider_name": "groq", "key": "rate_limit"})
-    await auth_client.post("/api/keys/", json={"provider_name": "gemini", "key": "validkey"})
+    await _add_key(db_session, test_user.id, "groq", "rate_limit")
+    await _add_key(db_session, test_user.id, "gemini", "validkey")
     
     response = await auth_client.post(
         "/api/chat/",
@@ -81,10 +107,10 @@ async def test_chat_rate_limit_fallback(auth_client):
     assert '"provider": "gemini"' in text
 
 @pytest.mark.asyncio
-async def test_chat_unavailable_fallback(auth_client):
+async def test_chat_unavailable_fallback(auth_client, db_session, test_user):
     # 4. primary unavailable -> fallback
-    await auth_client.post("/api/keys/", json={"provider_name": "groq", "key": "unavailable"})
-    await auth_client.post("/api/keys/", json={"provider_name": "gemini", "key": "validkey"})
+    await _add_key(db_session, test_user.id, "groq", "unavailable")
+    await _add_key(db_session, test_user.id, "gemini", "validkey")
     
     response = await auth_client.post(
         "/api/chat/",
@@ -95,10 +121,10 @@ async def test_chat_unavailable_fallback(auth_client):
     assert '"provider": "gemini"' in text
 
 @pytest.mark.asyncio
-async def test_chat_invalid_api_key_no_fallback(auth_client):
+async def test_chat_invalid_api_key_no_fallback(auth_client, db_session, test_user):
     # 5. primary invalid API key -> NO fallback
-    await auth_client.post("/api/keys/", json={"provider_name": "groq", "key": "invalid"})
-    await auth_client.post("/api/keys/", json={"provider_name": "gemini", "key": "validkey"})
+    await _add_key(db_session, test_user.id, "groq", "invalid")
+    await _add_key(db_session, test_user.id, "gemini", "validkey")
     
     response = await auth_client.post(
         "/api/chat/",
@@ -112,10 +138,10 @@ async def test_chat_invalid_api_key_no_fallback(auth_client):
     assert '"provider": "gemini"' not in text
 
 @pytest.mark.asyncio
-async def test_chat_bad_request_no_fallback(auth_client):
+async def test_chat_bad_request_no_fallback(auth_client, db_session, test_user):
     # 6. primary bad request -> NO fallback
-    await auth_client.post("/api/keys/", json={"provider_name": "groq", "key": "bad_request"})
-    await auth_client.post("/api/keys/", json={"provider_name": "gemini", "key": "validkey"})
+    await _add_key(db_session, test_user.id, "groq", "bad_request")
+    await _add_key(db_session, test_user.id, "gemini", "validkey")
     
     response = await auth_client.post(
         "/api/chat/",
@@ -129,10 +155,10 @@ async def test_chat_bad_request_no_fallback(auth_client):
     assert '"provider": "gemini"' not in text
 
 @pytest.mark.asyncio
-async def test_chat_fallback_success(auth_client):
+async def test_chat_fallback_success(auth_client, db_session, test_user):
     # 7. fallback success
-    await auth_client.post("/api/keys/", json={"provider_name": "groq", "key": "rate_limit"})
-    await auth_client.post("/api/keys/", json={"provider_name": "gemini", "key": "validkey"})
+    await _add_key(db_session, test_user.id, "groq", "rate_limit")
+    await _add_key(db_session, test_user.id, "gemini", "validkey")
     
     response = await auth_client.post(
         "/api/chat/",
@@ -145,10 +171,10 @@ async def test_chat_fallback_success(auth_client):
     assert "event: done" in text
 
 @pytest.mark.asyncio
-async def test_chat_fallback_failure(auth_client):
+async def test_chat_fallback_failure(auth_client, db_session, test_user):
     # 8. fallback failure
-    await auth_client.post("/api/keys/", json={"provider_name": "groq", "key": "rate_limit"})
-    await auth_client.post("/api/keys/", json={"provider_name": "gemini", "key": "rate_limit"})
+    await _add_key(db_session, test_user.id, "groq", "rate_limit")
+    await _add_key(db_session, test_user.id, "gemini", "rate_limit")
     
     response = await auth_client.post(
         "/api/chat/",
@@ -160,12 +186,12 @@ async def test_chat_fallback_failure(auth_client):
     assert "RATE_LIMIT" in text
 
 @pytest.mark.asyncio
-async def test_chat_no_infinite_retry(auth_client):
+async def test_chat_no_infinite_retry(auth_client, db_session, test_user):
     # 9. no infinite retry
     # Even if we have more keys that fail, fallback only happens once.
-    await auth_client.post("/api/keys/", json={"provider_name": "groq", "key": "rate_limit"})
-    await auth_client.post("/api/keys/", json={"provider_name": "gemini", "key": "rate_limit"})
-    await auth_client.post("/api/keys/", json={"provider_name": "anthropic", "key": "rate_limit"})
+    await _add_key(db_session, test_user.id, "groq", "rate_limit")
+    await _add_key(db_session, test_user.id, "gemini", "rate_limit")
+    await _add_key(db_session, test_user.id, "anthropic", "rate_limit")
     
     response = await auth_client.post(
         "/api/chat/",
@@ -177,3 +203,4 @@ async def test_chat_no_infinite_retry(auth_client):
     # Never hits anthropic
     assert text.count("event: routing") == 2
     assert text.count("event: error") == 1
+

@@ -108,6 +108,17 @@ class MockAdapter(BaseProviderAdapter):
     async def send_message(self, api_key: str, model_id: str, messages: List[Dict[str, str]]) -> str:
         return "mock response"
 
+    async def validate_key(self, api_key: str) -> None:
+        if api_key == "invalid":
+            raise ProviderError(ErrorCode.INVALID_API_KEY, self.provider_name, "Invalid mock API key.", False)
+        elif api_key == "timeout":
+            raise ProviderError(ErrorCode.TIMEOUT, self.provider_name, "Mock timeout.", True)
+        elif api_key == "unavailable":
+            raise ProviderError(ErrorCode.PROVIDER_UNAVAILABLE, self.provider_name, "Mock unavailable.", True)
+        elif api_key == "rate_limit":
+            raise ProviderError(ErrorCode.RATE_LIMIT, self.provider_name, "Mock rate limit.", True)
+        # Success otherwise
+
     async def stream_chat(self, api_key: str, model_id: str, messages: List[Dict[str, str]]) -> AsyncGenerator[Tuple[str, str], None]:
         if api_key == "invalid":
             yield ("error", json.dumps(ProviderError(ErrorCode.INVALID_API_KEY, "mock", "invalid key", False).to_dict()))

@@ -26,6 +26,14 @@ class BaseProviderAdapter(ABC):
         pass
 
     @abstractmethod
+    async def validate_key(self, api_key: str) -> None:
+        """
+        Validates the provider key with a lightweight request.
+        Raises ProviderError if invalid or unreachable.
+        """
+        pass
+
+    @abstractmethod
     def stream_chat(self, api_key: str, model_id: str, messages: List[Dict[str, str]]) -> AsyncGenerator[Tuple[str, str], None]:
         """
         Streams chat responses using the provider SDK.

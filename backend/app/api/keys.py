@@ -6,6 +6,8 @@ from app.db.database import get_db
 from app.db.models import ProviderKey, User
 from app.core.encryption import encrypt_key
 from app.api.deps import get_current_user, verify_csrf
+from app.providers.registry import ProviderRegistry
+from app.core.errors import ProviderError, ErrorCode
 
 router = APIRouter()
 
@@ -27,6 +29,22 @@ async def add_provider_key(
         )
     )
     existing_key = result.scalars().first()
+    
+    # Instantiate provider adapter and validate key
+    try:
+        adapter = ProviderRegistry.get_adapter(key_in.provider_name)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid provider")
+
+    try:
+        await adapter.validate_key(key_in.key)
+    except ProviderError as e:
+        if e.code == ErrorCode.INVALID_API_KEY:
+            raise HTTPException(status_code=400, detail="Invalid API key. Check the key and try again.")
+        elif e.code == ErrorCode.RATE_LIMIT:
+            raise HTTPException(status_code=429, detail="Provider rate limit reached. Try again later.")
+        else:
+            raise HTTPException(status_code=502, detail="Could not verify the key right now.")
     
     encrypted = encrypt_key(key_in.key)
     # Extract last 4 characters for key_hint
