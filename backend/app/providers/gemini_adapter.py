@@ -1,9 +1,12 @@
 import json
+import httpx
 from google import genai
+from google.genai import types
 from google.genai.errors import APIError
 from typing import AsyncGenerator, List, Dict, Tuple
 from app.providers.base import BaseProviderAdapter, ModelDefinition
-from app.core.errors import ProviderError, ErrorCode
+from app.core.errors import ProviderError, ErrorCode, provider_error_from_status, timeout_error
+from app.config import settings
 
 class GeminiAdapter(BaseProviderAdapter):
     @property
@@ -12,61 +15,72 @@ class GeminiAdapter(BaseProviderAdapter):
 
     def get_models(self) -> List[ModelDefinition]:
         return [
-            ModelDefinition(id="gemini-1.5-pro", name="Gemini 1.5 Pro", capabilities=["chat", "multimodal", "long_context"]),
-            ModelDefinition(id="gemini-1.5-flash", name="Gemini 1.5 Flash", capabilities=["chat", "fast", "multimodal"])
+            ModelDefinition(id="gemini-4-argon", name="Gemini 4 Argon", capabilities=["chat", "reasoning", "multimodal", "long_context"]),
+            ModelDefinition(id="gemini-3.8-flash", name="Gemini 3.8 Flash", capabilities=["chat", "fast", "multimodal"])
         ]
 
     def _map_error(self, e: Exception) -> ProviderError:
-        err_msg = str(e)
-        if isinstance(e, APIError):
-            if e.code == 403 or "API_KEY_INVALID" in err_msg or "invalid API key" in err_msg.lower():
-                return ProviderError(ErrorCode.INVALID_API_KEY, self.provider_name, "Invalid Gemini API key.", False)
-            elif e.code == 429:
-                return ProviderError(ErrorCode.RATE_LIMIT, self.provider_name, "Gemini rate limit exceeded.", True)
-            elif e.code == 503:
-                return ProviderError(ErrorCode.PROVIDER_UNAVAILABLE, self.provider_name, "Gemini service unavailable.", True)
-            elif e.code == 400:
-                return ProviderError(ErrorCode.BAD_REQUEST, self.provider_name, f"Gemini API Error: {err_msg}", False)
-        elif "API_KEY_INVALID" in err_msg or "invalid API key" in err_msg.lower():
-            return ProviderError(ErrorCode.INVALID_API_KEY, self.provider_name, "Invalid Gemini API key.", False)
-        return ProviderError(ErrorCode.UNKNOWN, self.provider_name, err_msg, False)
+        if isinstance(e, (TimeoutError, httpx.TimeoutException)):
+            return timeout_error(self.provider_name)
+        if isinstance(e, APIError) and isinstance(getattr(e, "code", None), int):
+            return provider_error_from_status(self.provider_name, e.code)
+        return ProviderError(ErrorCode.UNKNOWN, self.provider_name, "Gemini request failed.", False)
 
     def _convert_messages(self, messages: List[Dict[str, str]]) -> List[Dict]:
         gemini_messages = []
         for m in messages:
             if m["role"] == "system":
-                continue 
+                continue
             role = "user" if m["role"] == "user" else "model"
             gemini_messages.append({"role": role, "parts": [{"text": m["content"]}]})
         return gemini_messages
 
+    def _system_instruction(self, messages: List[Dict[str, str]]) -> str | None:
+        system_parts = [m["content"] for m in messages if m["role"] == "system"]
+        return "\n\n".join(system_parts) if system_parts else None
+
+    def _client(self, api_key: str) -> genai.Client:
+        timeout_ms = int(settings.PROVIDER_TIMEOUT_SECONDS * 1000)
+        return genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=timeout_ms)
+        )
+
     async def validate_key(self, api_key: str) -> None:
-        client = genai.Client(api_key=api_key)
+        client = self._client(api_key)
         try:
-            # Using get for a specific model is very cheap/fast
-            await client.aio.models.get(model='models/gemini-1.5-flash')
+            models = self.get_models()
+            fast = next((m for m in models if "fast" in m.capabilities), models[0])
+            await client.aio.models.get(model=f"models/{fast.id}")
         except Exception as e:
             raise self._map_error(e)
 
     async def send_message(self, api_key: str, model_id: str, messages: List[Dict[str, str]]) -> str:
-        client = genai.Client(api_key=api_key)
+        client = self._client(api_key)
         try:
             gemini_messages = self._convert_messages(messages)
-            response = await client.aio.models.generate_content(model=model_id, contents=gemini_messages)
+            system = self._system_instruction(messages)
+            config = types.GenerateContentConfig(system_instruction=system) if system else None
+            response = await client.aio.models.generate_content(
+                model=model_id, contents=gemini_messages, config=config
+            )
             return response.text
         except Exception as e:
             raise self._map_error(e)
 
     async def stream_chat(self, api_key: str, model_id: str, messages: List[Dict[str, str]]) -> AsyncGenerator[Tuple[str, str], None]:
-        client = genai.Client(api_key=api_key)
+        client = self._client(api_key)
         try:
             gemini_messages = self._convert_messages(messages)
-            
+            system = self._system_instruction(messages)
+            config = types.GenerateContentConfig(system_instruction=system) if system else None
+
             response = await client.aio.models.generate_content_stream(
                 model=model_id,
-                contents=gemini_messages
+                contents=gemini_messages,
+                config=config
             )
-            
+
             async for chunk in response:
                 if chunk.text:
                     yield ("message", chunk.text)

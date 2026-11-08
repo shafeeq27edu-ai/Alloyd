@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     CHAT_RATE_LIMIT: int = 15
     CHAT_RATE_WINDOW: int = 60
 
+    # Provider request limits (seconds)
+    PROVIDER_TIMEOUT_SECONDS: float = 60.0
+    PROVIDER_FIRST_CHUNK_TIMEOUT_SECONDS: float = 20.0
+
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",") if origin.strip()]

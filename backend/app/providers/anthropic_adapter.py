@@ -1,8 +1,9 @@
 import json
 from typing import AsyncGenerator, List, Dict, Tuple
-from anthropic import AsyncAnthropic, APIError, APIConnectionError, RateLimitError, AuthenticationError
+from anthropic import AsyncAnthropic, APIConnectionError, APITimeoutError, APIStatusError
 from app.providers.base import BaseProviderAdapter, ModelDefinition
-from app.core.errors import ProviderError, ErrorCode
+from app.core.errors import ProviderError, ErrorCode, provider_error_from_status, timeout_error
+from app.config import settings
 
 class AnthropicAdapter(BaseProviderAdapter):
     @property
@@ -11,30 +12,28 @@ class AnthropicAdapter(BaseProviderAdapter):
 
     def get_models(self) -> List[ModelDefinition]:
         return [
-            ModelDefinition(id="claude-3-5-sonnet-20240620", name="Claude 3.5 Sonnet", capabilities=["chat", "reasoning", "multimodal"]),
-            ModelDefinition(id="claude-3-haiku-20240307", name="Claude 3 Haiku", capabilities=["chat", "fast"])
+            ModelDefinition(id="claude-sonnet-5-5", name="Claude Sonnet 5.5", capabilities=["chat", "reasoning", "multimodal"]),
+            ModelDefinition(id="claude-haiku-5-5", name="Claude Haiku 5.5", capabilities=["chat", "fast"])
         ]
 
     def _map_error(self, e: Exception) -> ProviderError:
-        if isinstance(e, AuthenticationError):
-            return ProviderError(ErrorCode.INVALID_API_KEY, self.provider_name, "Invalid Anthropic API key.", False)
-        elif isinstance(e, RateLimitError):
-            return ProviderError(ErrorCode.RATE_LIMIT, self.provider_name, "Anthropic rate limit exceeded.", True)
-        elif isinstance(e, APIConnectionError):
+        if isinstance(e, APITimeoutError):
+            return timeout_error(self.provider_name)
+        if isinstance(e, APIConnectionError):
             return ProviderError(ErrorCode.PROVIDER_UNAVAILABLE, self.provider_name, "Failed to connect to Anthropic.", True)
-        elif isinstance(e, APIError):
-            return ProviderError(ErrorCode.BAD_REQUEST, self.provider_name, f"Anthropic API Error: {str(e)}", False)
-        return ProviderError(ErrorCode.UNKNOWN, self.provider_name, str(e), False)
+        if isinstance(e, APIStatusError):
+            return provider_error_from_status(self.provider_name, e.status_code)
+        return ProviderError(ErrorCode.UNKNOWN, self.provider_name, "Anthropic request failed.", False)
 
     async def validate_key(self, api_key: str) -> None:
-        client = AsyncAnthropic(api_key=api_key)
+        client = AsyncAnthropic(api_key=api_key, timeout=settings.PROVIDER_TIMEOUT_SECONDS)
         try:
             await client.models.list()
         except Exception as e:
             raise self._map_error(e)
 
     async def send_message(self, api_key: str, model_id: str, messages: List[Dict[str, str]]) -> str:
-        client = AsyncAnthropic(api_key=api_key)
+        client = AsyncAnthropic(api_key=api_key, timeout=settings.PROVIDER_TIMEOUT_SECONDS)
         try:
             system_msg = next((m["content"] for m in messages if m["role"] == "system"), None)
             api_messages = [m for m in messages if m["role"] != "system"]
@@ -52,7 +51,7 @@ class AnthropicAdapter(BaseProviderAdapter):
             raise self._map_error(e)
 
     async def stream_chat(self, api_key: str, model_id: str, messages: List[Dict[str, str]]) -> AsyncGenerator[Tuple[str, str], None]:
-        client = AsyncAnthropic(api_key=api_key)
+        client = AsyncAnthropic(api_key=api_key, timeout=settings.PROVIDER_TIMEOUT_SECONDS)
         try:
             system_msg = next((m["content"] for m in messages if m["role"] == "system"), None)
             api_messages = [m for m in messages if m["role"] != "system"]

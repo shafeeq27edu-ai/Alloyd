@@ -13,4 +13,5 @@ python-multipart
 anthropic
 pyyaml
 google-genai
+httpx
 pytest-asyncio
