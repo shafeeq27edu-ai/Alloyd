@@ -49,9 +49,8 @@ class GeminiAdapter(BaseProviderAdapter):
     async def validate_key(self, api_key: str) -> None:
         client = self._client(api_key)
         try:
-            models = self.get_models()
-            fast = next((m for m in models if "fast" in m.capabilities), models[0])
-            await client.aio.models.get(model=f"models/{fast.id}")
+            # List models so key validation does not depend on one model's availability.
+            await client.aio.models.list()
         except Exception as e:
             raise self._map_error(e)
 
