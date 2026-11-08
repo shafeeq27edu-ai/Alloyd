@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from app.config import settings
 from app.db.database import engine, Base
 from app.api import auth, keys, chat, conversations, catalog
@@ -18,6 +19,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def limit_request_size(request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            length = int(content_length)
+        except ValueError:
+            return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length header."})
+        if length > settings.MAX_REQUEST_BYTES:
+            return JSONResponse(status_code=413, content={"detail": "Request body too large."})
+    return await call_next(request)
 
 @app.middleware("http")
 async def add_security_headers(request, call_next):

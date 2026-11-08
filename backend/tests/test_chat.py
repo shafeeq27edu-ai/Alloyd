@@ -303,3 +303,22 @@ async def test_chat_legacy_retired_model_uses_auto(auth_client, db_session, test
     text = response.text
     assert '"mode": "auto"' in text
     assert "no longer available" in text
+
+
+@pytest.mark.asyncio
+async def test_chat_rejects_oversized_message(auth_client):
+    response = await auth_client.post(
+        "/api/chat/",
+        json={"message": "x" * 20001}
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_request_body_limit(async_client, monkeypatch):
+    monkeypatch.setattr(settings, "MAX_REQUEST_BYTES", 64)
+    response = await async_client.post(
+        "/api/auth/register",
+        json={"email": "large@example.com", "password": "x" * 100}
+    )
+    assert response.status_code == 413

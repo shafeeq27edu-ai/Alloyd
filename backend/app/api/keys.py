@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.db.database import get_db
 from app.db.models import ProviderKey, User
 from app.core.encryption import encrypt_key
@@ -12,8 +12,8 @@ from app.core.errors import ProviderError, ErrorCode
 router = APIRouter()
 
 class KeyCreate(BaseModel):
-    provider_name: str
-    key: str
+    provider_name: str = Field(max_length=32)
+    key: str = Field(min_length=1, max_length=512)
 
 @router.post("/", status_code=201, dependencies=[Depends(verify_csrf)])
 async def add_provider_key(

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from app.db.database import get_db
 from app.db.models import ProviderKey, User, Conversation, Message
@@ -61,11 +61,11 @@ async def _stream_with_first_chunk_timeout(adapter, api_key: str, model_id: str,
         await stream.aclose()
 
 class ChatRequest(BaseModel):
-    mode: str = "auto" # "auto" or "manual"
-    provider: Optional[str] = None
-    model: Optional[str] = None
-    message: str
-    conversation_id: Optional[str] = None
+    mode: str = Field(default="auto", max_length=16) # "auto" or "manual"
+    provider: Optional[str] = Field(default=None, max_length=32)
+    model: Optional[str] = Field(default=None, max_length=64)
+    message: str = Field(min_length=1, max_length=20000)
+    conversation_id: Optional[str] = Field(default=None, max_length=64)
 
 @router.post("/", dependencies=[Depends(verify_csrf)])
 async def stream_chat(
