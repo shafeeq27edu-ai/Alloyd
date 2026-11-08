@@ -40,7 +40,7 @@ async def rotate_keys(dry_run: bool = False):
                     else:
                         skipped_count += 1
                         
-                except Exception as e:
+                except Exception:
                     error_count += 1
                     # Log without exposing credentials or ciphertexts
                     print(f"Error rotating key ID {key.id}")
@@ -62,8 +62,9 @@ async def rotate_keys(dry_run: bool = False):
                     print("Errors encountered. Rolling back changes.")
                     sys.exit(1)
                     
-        except Exception as e:
-            print(f"Error connecting to database: {e}")
+        except Exception as exc:
+            # Never print the exception text: it can include the database DSN.
+            print(f"Error connecting to database ({type(exc).__name__}). Check DATABASE_URL and connectivity.")
             sys.exit(1)
 
 if __name__ == "__main__":

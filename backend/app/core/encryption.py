@@ -12,8 +12,10 @@ try:
         fernets.append(previous_fernet)
         
     _cipher_suite = MultiFernet(fernets)
-except Exception as e:
-    raise RuntimeError(f"Invalid ENCRYPTION_KEY: {e}")
+except Exception as exc:
+    raise RuntimeError(
+        f"Invalid ENCRYPTION_KEY ({type(exc).__name__})."
+    ) from exc
 
 def encrypt_key(plain_text: str) -> str:
     """Encrypts a plaintext string and returns the ciphertext as a string."""
