@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Enable once with: git config core.hooksPath .githooks
+set -eu
+
+failed=0
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+blocked=$(printf '%s\n' "$staged" \
+  | grep -E '(^|/)\.env($|\.)|\.(pem|key|p12|pfx)$|(^|/)id_rsa' \
+  | grep -v '\.env\.example$' || true)
+if [ -n "$blocked" ]; then
+  printf 'Blocked: environment or private-key files must not be committed:\n%s\n' "$blocked" >&2
+  failed=1
+fi
+
+added=$(git diff --cached -U0 --diff-filter=ACM -- . ':(exclude).env.example' ':(exclude)*/.env.example' \
+  | grep -E '^\+' | grep -v '^+++' || true)
+
+if [ -n "$added" ]; then
+  patterns='(sk-[A-Za-z0-9_-]{20,}|gsk_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|eyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\.|postgres(ql)?(\+asyncpg)?://[^:@/]+:[^@/]+@|sb_secret_[A-Za-z0-9_-]+)'
+  if printf '%s\n' "$added" | grep -Eq "$patterns"; then
+    printf 'Blocked: staged changes contain a secret-like value. Remove it and rotate the credential.\n' >&2
+    failed=1
+  fi
+
+  envfile="$(git rev-parse --show-toplevel)/backend/.env"
+  if [ -f "$envfile" ]; then
+    values=$(sed -nE 's/^[A-Za-z_][A-Za-z0-9_]*(SECRET|KEY|TOKEN|PASSWORD|DATABASE_URL)[A-Za-z0-9_]*=(.*)$/\2/p' "$envfile" \
+      | sed -E 's/^"(.*)"$/\1/; s/^'\''(.*)'\''$/\1/')
+    while IFS= read -r value; do
+      [ -n "$value" ] || continue
+      [ "${#value}" -ge 8 ] || continue
+      case "$value" in
+        replace_with*|YOUR-*|'[YOUR-PASSWORD]'*) continue ;;
+      esac
+      if printf '%s\n' "$added" | grep -Fq -- "$value"; then
+        printf 'Blocked: staged changes contain a value from backend/.env. Use .env.example placeholders instead.\n' >&2
+        failed=1
+        break
+      fi
+    done <<< "$values"
+  fi
+fi
+
+if [ "$failed" -ne 0 ]; then
+  printf 'Files in this commit:\n%s\n' "$staged" >&2
+  exit 1
+fi
+
+exit 0
