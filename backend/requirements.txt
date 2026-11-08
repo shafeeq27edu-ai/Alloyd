@@ -1,6 +1,6 @@
 fastapi
 uvicorn
-sqlalchemy
+sqlalchemy[asyncio]
 alembic
 asyncpg
 PyJWT
@@ -8,6 +8,7 @@ bcrypt
 cryptography
 groq
 pydantic-settings
+email-validator
 python-multipart
 anthropic
 pyyaml
