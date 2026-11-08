@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { fetchWithAuth } from "@/lib/api";
+import { SSEParser, type SSEEvent } from "@/lib/sse";
 import Sidebar from "@/components/Sidebar";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -12,6 +13,7 @@ import Select from "@/components/Select";
 import { useToast } from "@/components/Toast";
 
 type Message = { role: string; content: string; provider?: string; model?: string; mode?: string; category?: string };
+type ModelOption = { id: string; name: string; capabilities: string[] };
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -24,8 +26,9 @@ export default function ChatPage() {
   const { addToast } = useToast();
 
   const [mode, setMode] = useState("auto");
-  const [selectedProvider, setSelectedProvider] = useState("groq");
-  const [selectedModel, setSelectedModel] = useState("llama3-8b-8192");
+  const [models, setModels] = useState<Record<string, ModelOption[]>>({});
+  const [selectedProvider, setSelectedProvider] = useState("");
+  const [selectedModel, setSelectedModel] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
 
@@ -38,6 +41,21 @@ export default function ChatPage() {
           const keysData = await keysRes.json();
           if (!keysData.keys || keysData.keys.length === 0) {
             router.push("/settings?onboarding=true");
+          }
+        }
+
+        const modelsRes = await fetchWithAuth("/models");
+        if (modelsRes.ok) {
+          const modelsData = await modelsRes.json();
+          const catalog: Record<string, ModelOption[]> = {};
+          for (const provider of modelsData.providers || []) {
+            catalog[provider.provider] = provider.models;
+          }
+          setModels(catalog);
+          const firstProvider = Object.keys(catalog)[0];
+          if (firstProvider && catalog[firstProvider].length > 0) {
+            setSelectedProvider(firstProvider);
+            setSelectedModel(catalog[firstProvider][0].id);
           }
         }
       } catch (err) {
@@ -111,74 +129,99 @@ export default function ChatPage() {
       const decoder = new TextDecoder("utf-8");
       if (!reader) return;
 
-      let currentEvent = "";
+      const parser = new SSEParser();
+      let stopped = false;
+      let noticeShown = false;
 
-      while (true) {
+      const handleEvent = (ev: SSEEvent) => {
+        if (ev.event === "done") {
+          stopped = true;
+          return;
+        }
+
+        if (ev.event === "error") {
+          try {
+            const errData = JSON.parse(ev.data);
+            const detail = errData.detail ?? errData;
+            let userMsg = typeof detail === "string" ? detail : detail?.message || "The request failed.";
+            if (detail && typeof detail === "object" && detail.code) {
+              const codes: Record<string, string> = {
+                "INVALID_API_KEY": "The API key for this provider appears to be invalid or missing.",
+                "RATE_LIMIT": "This provider is temporarily rate limited. Please wait a moment.",
+                "TIMEOUT": "The request took too long. Please try again.",
+                "PROVIDER_UNAVAILABLE": "This AI provider is temporarily unavailable.",
+                "MODEL_UNAVAILABLE": "The selected model is no longer available.",
+                "CAPABILITY_NOT_SUPPORTED": "The selected model cannot handle this type of request."
+              };
+              userMsg = codes[detail.code] || detail.message || userMsg;
+            }
+            setError(userMsg);
+            addToast(typeof userMsg === "string" ? userMsg : "An error occurred", "error");
+          } catch {
+            setError(ev.data);
+          }
+          stopped = true;
+          return;
+        }
+
+        if (ev.event === "routing") {
+          try {
+            const routingData = JSON.parse(ev.data);
+            if (!currentConversationId) {
+              setCurrentConversationId(routingData.conversation_id);
+            }
+            if (routingData.notice && !noticeShown) {
+              noticeShown = true;
+              addToast(routingData.notice, "info");
+            }
+            setMessages(prev => {
+              const newMessages = [...prev];
+              const last = newMessages[newMessages.length - 1];
+              if (last.role === "assistant") {
+                last.provider = routingData.provider;
+                last.model = routingData.model;
+                last.mode = routingData.mode;
+                last.category = routingData.category;
+              }
+              return newMessages;
+            });
+          } catch { /* ignore parse errors */ }
+          return;
+        }
+
+        if (ev.event === "message") {
+          try {
+            const data = JSON.parse(ev.data);
+            setMessages(prev => {
+              const newMessages = [...prev];
+              const last = newMessages[newMessages.length - 1];
+              if (last.role === "assistant") {
+                last.content += data.content;
+              }
+              return newMessages;
+            });
+          } catch { /* ignore parse errors */ }
+        }
+      };
+
+      while (!stopped) {
         const { value, done } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n").filter(l => l.trim() !== "");
-        for (const line of lines) {
-          if (line.startsWith("event: ")) {
-            currentEvent = line.slice(7).trim();
-          } else if (line.startsWith("data: ")) {
-            const dataStr = line.slice(6);
-            if (currentEvent === "done") {
-              break;
-            } else if (currentEvent === "routing") {
-              try {
-                const routingData = JSON.parse(dataStr);
-                if (!currentConversationId) {
-                  setCurrentConversationId(routingData.conversation_id);
-                }
-                setMessages(prev => {
-                  const newMessages = [...prev];
-                  const last = newMessages[newMessages.length - 1];
-                  if (last.role === "assistant") {
-                    last.provider = routingData.provider;
-                    last.model = routingData.model;
-                    last.mode = routingData.mode;
-                    last.category = routingData.category;
-                  }
-                  return newMessages;
-                });
-              } catch { /* ignore parse errors */ }
-            } else if (currentEvent === "error") {
-              try {
-                const errData = JSON.parse(dataStr);
-                let userMsg = errData.detail;
-                if (typeof errData.detail === 'object' && errData.detail.code) {
-                  const codes: Record<string, string> = {
-                    "INVALID_API_KEY": "The API key for this provider appears to be invalid or missing.",
-                    "RATE_LIMIT": "This provider is temporarily rate limited. Please wait a moment.",
-                    "TIMEOUT": "The request took too long. Please try again.",
-                    "PROVIDER_UNAVAILABLE": "This AI provider is temporarily unavailable.",
-                    "CAPABILITY_NOT_SUPPORTED": "The selected model cannot handle this type of request."
-                  };
-                  userMsg = codes[errData.detail.code] || errData.detail.message;
-                }
-                setError(userMsg);
-                // Also fire a toast for streaming errors so they're visible
-                addToast(typeof userMsg === 'string' ? userMsg : "An error occurred", "error");
-              } catch {
-                setError(dataStr);
-              }
-              break;
-            } else if (currentEvent === "message") {
-              try {
-                const data = JSON.parse(dataStr);
-                setMessages(prev => {
-                  const newMessages = [...prev];
-                  const last = newMessages[newMessages.length - 1];
-                  if (last.role === "assistant") {
-                    last.content += data.content;
-                  }
-                  return newMessages;
-                });
-              } catch { /* ignore parse errors */ }
-            }
-          }
+        for (const ev of parser.push(decoder.decode(value, { stream: true }))) {
+          handleEvent(ev);
+          if (stopped) break;
         }
+      }
+
+      if (!stopped) {
+        for (const ev of parser.finish()) {
+          handleEvent(ev);
+          if (stopped) break;
+        }
+      }
+
+      if (stopped) {
+        await reader.cancel().catch(() => {});
       }
     } catch {
       setError("Network error — unable to reach the server.");
@@ -186,12 +229,6 @@ export default function ChatPage() {
     } finally {
       setIsStreaming(false);
     }
-  };
-
-  const models: Record<string, string[]> = {
-    groq: ["llama3-8b-8192", "llama3-70b-8192"],
-    anthropic: ["claude-3-5-sonnet-20240620", "claude-3-haiku-20240307"],
-    gemini: ["gemini-1.5-pro", "gemini-1.5-flash"]
   };
 
   const skills = [
@@ -357,14 +394,14 @@ export default function ChatPage() {
                     value={selectedProvider} 
                     onChange={val => {
                       setSelectedProvider(val);
-                      setSelectedModel(models[val][0]);
+                      setSelectedModel(models[val]?.[0]?.id ?? "");
                     }}
                     variant="inline"
                     label="Provider"
                   />
                   <span aria-hidden="true">/</span>
                   <Select 
-                    options={models[selectedProvider].map(m => ({value: m, label: m}))}
+                    options={(models[selectedProvider] ?? []).map(m => ({value: m.id, label: m.name}))}
                     value={selectedModel} 
                     onChange={setSelectedModel}
                     variant="inline"
