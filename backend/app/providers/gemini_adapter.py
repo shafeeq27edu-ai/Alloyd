@@ -22,8 +22,21 @@ class GeminiAdapter(BaseProviderAdapter):
     def _map_error(self, e: Exception) -> ProviderError:
         if isinstance(e, (TimeoutError, httpx.TimeoutException)):
             return timeout_error(self.provider_name)
-        if isinstance(e, APIError) and isinstance(getattr(e, "code", None), int):
-            return provider_error_from_status(self.provider_name, e.code)
+        if isinstance(e, httpx.RequestError):
+            return ProviderError(
+                ErrorCode.PROVIDER_UNAVAILABLE, self.provider_name,
+                "Failed to connect to Gemini.", True
+            )
+        if isinstance(e, APIError):
+            # Google returns 400 with API_KEY_INVALID for bad keys, not 401.
+            message = str(e).lower()
+            if "api_key_invalid" in message or "invalid api key" in message:
+                return ProviderError(
+                    ErrorCode.INVALID_API_KEY, self.provider_name,
+                    "The Gemini API key appears to be invalid.", False
+                )
+            if isinstance(getattr(e, "code", None), int):
+                return provider_error_from_status(self.provider_name, e.code)
         return ProviderError(ErrorCode.UNKNOWN, self.provider_name, "Gemini request failed.", False)
 
     def _convert_messages(self, messages: List[Dict[str, str]]) -> List[Dict]:
