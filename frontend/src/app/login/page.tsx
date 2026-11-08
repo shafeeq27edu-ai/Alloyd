@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, fetchCsrfToken } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import { Loader2, AlertCircle } from "lucide-react";
 
@@ -26,9 +26,13 @@ export default function LoginPage() {
     formData.append("password", password);
 
     try {
+      const csrf = await fetchCsrfToken(true);
+      const headers: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
+      if (csrf) headers["X-CSRF-Token"] = csrf;
+
       const res = await fetch(`${API_BASE_URL}/auth/token`, {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers,
         body: formData,
         credentials: "include",
       });
@@ -36,7 +40,9 @@ export default function LoginPage() {
         router.push("/");
       } else {
         const data = await res.json().catch(() => null);
-        if (res.status === 422) {
+        if (res.status === 403) {
+          setError("Security check failed. Please refresh the page and try again.");
+        } else if (res.status === 422) {
           setError("Please enter a valid email address.");
         } else if (res.status === 429) {
           setError("Too many attempts. Please wait a moment and try again.");
@@ -64,9 +70,13 @@ export default function LoginPage() {
     setIsLoading(true);
     setError(null);
     try {
+      const csrf = await fetchCsrfToken(true);
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (csrf) headers["X-CSRF-Token"] = csrf;
+
       const res = await fetch(`${API_BASE_URL}/auth/register`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ email, password }),
         credentials: "include",
       });
@@ -74,7 +84,9 @@ export default function LoginPage() {
         handleLogin(e);
       } else {
         const data = await res.json().catch(() => null);
-        if (res.status === 409 || (data?.detail && typeof data.detail === 'string' && data.detail.toLowerCase().includes('exist'))) {
+        if (res.status === 403) {
+          setError("Security check failed. Please refresh the page and try again.");
+        } else if (res.status === 409 || (data?.detail && typeof data.detail === 'string' && data.detail.toLowerCase().includes('exist'))) {
           setError("An account with this email already exists.");
         } else if (res.status === 422) {
           setError("Please enter a valid email address.");

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { fetchWithAuth } from "@/lib/api";
+import { fetchWithAuth, resetCsrfToken } from "@/lib/api";
 import { MessageSquarePlus, Trash2, LogOut, X } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { useRouter } from "next/navigation";
@@ -159,6 +159,7 @@ export default function Sidebar({
               try {
                 const res = await fetchWithAuth("/auth/logout", { method: "POST" });
                 if (res.ok) {
+                  resetCsrfToken();
                   router.push("/login");
                 } else {
                   addToast("Failed to sign out", "error");

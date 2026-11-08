@@ -9,8 +9,11 @@ class Settings(BaseSettings):
     ENCRYPTION_KEY: str
     PREVIOUS_ENCRYPTION_KEY: str | None = None
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7 # 7 days
-    DEBUG: bool = True
+    DEBUG: bool = False
     ALLOWED_ORIGINS: str = "http://localhost:3000"
+    # Comma-separated IPs/CIDRs whose X-Forwarded-For header is trusted.
+    TRUSTED_PROXIES: str = ""
+    MAX_REQUEST_BYTES: int = 1_000_000
 
     # Rate Limiting Settings
     LOGIN_RATE_LIMIT: int = 5

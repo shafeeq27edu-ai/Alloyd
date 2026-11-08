@@ -28,10 +28,6 @@ class UserCreate(BaseModel):
             raise ValueError("Password is too long (maximum 72 bytes)")
         return v
 
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-
 @router.get("/csrf")
 async def get_csrf_token(response: Response):
     token = str(uuid.uuid4())
@@ -44,7 +40,7 @@ async def get_csrf_token(response: Response):
     )
     return {"csrf_token": token}
 
-@router.post("/register", response_model=Token)
+@router.post("/register", dependencies=[Depends(verify_csrf)])
 async def register(request: Request, user_in: UserCreate, response: Response, db: AsyncSession = Depends(get_db)):
     await check_rate_limit(
         f"register:{get_client_ip(request)}",
@@ -74,9 +70,9 @@ async def register(request: Request, user_in: UserCreate, response: Response, db
         samesite="lax",
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"success": True}
 
-@router.post("/token", response_model=Token)
+@router.post("/token", dependencies=[Depends(verify_csrf)])
 async def login_for_access_token(request: Request, response: Response, form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
     await check_rate_limit(
         f"login:{get_client_ip(request)}:{form_data.username}",
@@ -104,7 +100,7 @@ async def login_for_access_token(request: Request, response: Response, form_data
         samesite="lax",
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"success": True}
 
 @router.post("/logout", dependencies=[Depends(verify_csrf)])
 async def logout(response: Response):

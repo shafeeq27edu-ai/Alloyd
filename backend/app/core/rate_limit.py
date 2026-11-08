@@ -1,5 +1,6 @@
 import time
 import asyncio
+import ipaddress
 from typing import Dict, List, Tuple
 from fastapi import Request, HTTPException, status
 from app.config import settings
@@ -37,12 +38,26 @@ class InMemoryRateLimiter:
 # Global instance for the process
 limiter = InMemoryRateLimiter()
 
+def _is_trusted_proxy(host: str) -> bool:
+    for entry in settings.TRUSTED_PROXIES.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        try:
+            if ipaddress.ip_address(host) in ipaddress.ip_network(entry, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
 def get_client_ip(request: Request) -> str:
-    # Use x-forwarded-for if behind proxy, otherwise client.host
+    peer = request.client.host if request.client else "127.0.0.1"
+    if not _is_trusted_proxy(peer):
+        return peer
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
         return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "127.0.0.1"
+    return peer
 
 async def check_rate_limit(key: str, limit: int, window: int):
     allowed, retry_after = await limiter.check(key, limit, window)

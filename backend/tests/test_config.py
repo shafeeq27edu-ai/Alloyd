@@ -8,7 +8,7 @@ from app.config import Settings
 @pytest.fixture
 def clean_env():
     # Remove relevant env vars to start fresh
-    for key in ["SECRET_KEY", "ENCRYPTION_KEY", "DATABASE_URL"]:
+    for key in ["SECRET_KEY", "ENCRYPTION_KEY", "DATABASE_URL", "DEBUG"]:
         if key in os.environ:
             del os.environ[key]
 
@@ -87,3 +87,21 @@ def test_no_provider_keys_required(clean_env):
     settings = Settings(_env_file=None)
     # The config does not even define these, so it passes naturally.
     assert hasattr(settings, "SECRET_KEY")
+
+
+def test_debug_defaults_off(clean_env):
+    os.environ["SECRET_KEY"] = "a" * 32
+    os.environ["ENCRYPTION_KEY"] = Fernet.generate_key().decode()
+    os.environ["DATABASE_URL"] = "postgresql+asyncpg://user:pass@localhost/db"
+
+    settings = Settings(_env_file=None)
+    assert settings.DEBUG is False
+
+
+def test_trusted_proxies_defaults_empty(clean_env):
+    os.environ["SECRET_KEY"] = "a" * 32
+    os.environ["ENCRYPTION_KEY"] = Fernet.generate_key().decode()
+    os.environ["DATABASE_URL"] = "postgresql+asyncpg://user:pass@localhost/db"
+
+    settings = Settings(_env_file=None)
+    assert settings.TRUSTED_PROXIES == ""

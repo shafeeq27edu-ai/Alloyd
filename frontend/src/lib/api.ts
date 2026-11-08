@@ -2,22 +2,30 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://loca
 
 let csrfToken: string | null = null;
 
+export async function fetchCsrfToken(forceRefresh = false): Promise<string | null> {
+  if (csrfToken && !forceRefresh) return csrfToken;
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth/csrf`, { credentials: "include" });
+    if (res.ok) {
+      const data = await res.json();
+      csrfToken = data.csrf_token;
+    }
+  } catch (e) {
+    console.error("Failed to fetch CSRF token", e);
+  }
+  return csrfToken;
+}
+
+export function resetCsrfToken() {
+  csrfToken = null;
+}
+
 export async function fetchWithAuth(url: string, options: RequestInit = {}) {
   const method = options.method?.toUpperCase() || "GET";
-  
-  if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
-    // Exclude login and register from requiring CSRF since they establish the session
-    if (!csrfToken && url !== "/auth/token" && url !== "/auth/register") {
-      try {
-        const res = await fetch(`${API_BASE_URL}/auth/csrf`, { credentials: "include" });
-        if (res.ok) {
-          const data = await res.json();
-          csrfToken = data.csrf_token;
-        }
-      } catch (e) {
-        console.error("Failed to fetch CSRF token", e);
-      }
-    }
+  const needsCsrf = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
+
+  if (needsCsrf && !csrfToken) {
+    await fetchCsrfToken();
   }
 
   const headers: Record<string, string> = {
@@ -25,7 +33,7 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
     ...(options.headers as Record<string, string>),
   };
   
-  if (csrfToken && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+  if (csrfToken && needsCsrf) {
     headers["X-CSRF-Token"] = csrfToken;
   }
 
