@@ -66,3 +66,19 @@
 **Why:** The owner owns the risk decision, but the gate report must stay honest: an unrun check is not a passed check. Mocked tests cannot prove the real SDKs, model IDs, or streaming behavior.
 
 **Revisit if:** provider calls fail in daily use, model IDs are rejected, or before the Phase 9 release-candidate audit — run the smoke script then.
+
+## 2026-11-08 — Phase 3 auth and browser hardening
+
+**Context:** Login and register had no Origin/CSRF check, the JWT was readable by client JavaScript, `X-Forwarded-For` was trusted from any caller, the CSP allowed `unsafe-eval` in production, `DEBUG` defaulted to on, and some error paths printed exception text that could contain a DSN.
+
+**Options:**
+- Login CSRF: (a) double-submit token plus Origin check on every state-changing route; (b) rely on `SameSite=Strict` for the session cookie.
+- Session token: (a) cookie-only; (b) keep returning it in JSON for non-browser clients.
+- Proxy trust: (a) honor `X-Forwarded-For` only behind configured proxies; (b) trust it from anyone.
+- CSP: (a) static policy, drop `unsafe-eval` in production; (b) nonce/hash-based policy.
+
+**Decision:** (a) in each case. Origin + CSRF on login, register, and logout; JWT cookie-only; `TRUSTED_PROXIES` allowlist with an empty default; static CSP without `unsafe-eval` in production, keeping `unsafe-inline`.
+
+**Why:** `SameSite=Strict` breaks the sibling-subdomain flow planned for Phase 4 and does not cover same-site attacks. No in-repo client consumes the JSON token. An allowlist keeps rate limiting meaningful behind a proxy without trusting spoofed headers. A nonce CSP needs more frontend plumbing than this phase allows; `unsafe-inline` is the recorded residual risk in `docs/SECURITY.md`.
+
+**Revisit if:** non-browser API clients need a token flow, a shared rate-limit store is introduced, or the frontend adopts nonce-based CSP.
