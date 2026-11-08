@@ -36,3 +36,12 @@ Never make the project appear complete when functionality has not been verified.
 This is extremely important when using coding agents. A polished summary saying "everything is implemented successfully" means nothing if the actual application hasn't been tested.
 
 *(See `.agents/rules/` for detailed project, security, and implementation rules.)*
+
+## Non-Negotiable Security
+- Never print, `cat`, `echo`, or otherwise display values from any `.env` file. To inspect one, list key names only.
+- BYOK only. Provider calls stay on the backend; never automate consumer logins, session reuse, or cookie extraction.
+- Provider keys are encrypted at rest and never logged, returned by APIs, exposed to client JavaScript, or committed to git.
+- Auth tokens stay in HttpOnly cookies, never localStorage/sessionStorage. Keep CSRF protection on every state-changing endpoint and never weaken CORS, cookie, or CSRF settings.
+- Verify ownership server-side on every resource; never trust user IDs from the frontend.
+- Never surface stack traces or raw provider errors. Return a safe, actionable message and log sanitized details only.
+- No destructive database operations, migrations, or dependency changes without explicit approval.

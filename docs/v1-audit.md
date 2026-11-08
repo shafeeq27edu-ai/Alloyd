@@ -1,5 +1,7 @@
 # Alloyd V1 Audit
 
+> **SUPERSEDED (2026-11-08).** Kept for history only. Current plan: `docs/PHASE_PLAN.md`. Current status is tracked by the phase gate reports and `docs/decisions/LOG.md`.
+
 **Date**: 2026-09-29  
 **Scope**: Full codebase read — every backend and frontend source file  
 **Verdict**: 🟡 CONDITIONALLY READY — functional for internal dogfooding, not for public deployment
