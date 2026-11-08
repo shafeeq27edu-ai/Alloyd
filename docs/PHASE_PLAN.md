@@ -48,7 +48,9 @@ Read-only audit completed. Findings drive the phases below.
 
 ---
 
-## Phase 2 — Make it actually work with real providers 🔒
+## Phase 2 — Make it actually work with real providers 🔒 ✅ CLOSED
+**Status:** Closed 2026-11-08. The owner waived the smoke-script criterion; it remains NOT RUN (see `docs/decisions/LOG.md`).
+
 **Goal:** correct behavior against real provider APIs. No new features.
 
 1. **Single model catalog:** each adapter's `get_models()` is the only list; `ProviderRegistry.all_models()`, `fast_model(provider)`, `validate_catalog()`; router config validated against the catalog at startup; authenticated `GET /api/models`; frontend fetches it (remove hardcoded map in `page.tsx`); title generator picks a fast model from the catalog.

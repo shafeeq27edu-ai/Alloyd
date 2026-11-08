@@ -56,3 +56,13 @@
 **Decision:** Remove the category from the router, classifier, config, and frontend. Image prompts classify as `GENERAL`. Reintroduce image generation in V2 as a proper capability with an image-capable model catalog.
 
 **Why:** Shipping a category that cannot work is worse than routing those prompts to a model that can discuss them.
+
+## 2026-11-08 — Phase 2 closed with the owner smoke criterion waived
+
+**Context:** Phase 2 acceptance requires the owner to run `backend/scripts/smoke_providers.py` with real provider keys. The owner directed Phase 2 to close and Phase 3 to start without pasting smoke output. The script was never run, so real-provider compatibility is unproven.
+
+**Decision:** Close Phase 2 with that criterion recorded as owner-waived / NOT RUN, never as PASS. Automated evidence stands at 87 backend tests, 8 SSE parser tests, lint 0, build 0. The gap carries into later phases.
+
+**Why:** The owner owns the risk decision, but the gate report must stay honest: an unrun check is not a passed check. Mocked tests cannot prove the real SDKs, model IDs, or streaming behavior.
+
+**Revisit if:** provider calls fail in daily use, model IDs are rejected, or before the Phase 9 release-candidate audit — run the smoke script then.
