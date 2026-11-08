@@ -32,10 +32,6 @@ class TaskClassifier:
         if any(re.search(pattern, prompt, re.IGNORECASE) for pattern in writing_patterns):
             return TaskCategory.WRITING
 
-        image_patterns = [r"generate an image", r"draw a picture", r"create an image"]
-        if any(re.search(pattern, prompt, re.IGNORECASE) for pattern in image_patterns):
-            return TaskCategory.IMAGE_GENERATION
-
         planning_patterns = [r"plan a", r"architecture", r"design a", r"how should I structure", r"strategy"]
         if any(re.search(pattern, prompt, re.IGNORECASE) for pattern in planning_patterns):
             return TaskCategory.PLANNING_DECISION

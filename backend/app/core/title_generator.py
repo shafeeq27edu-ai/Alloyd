@@ -1,34 +1,28 @@
-import asyncio
+import logging
 from sqlalchemy.future import select
 from app.db.database import AsyncSessionLocal
 from app.db.models import Conversation, ProviderKey
 from app.core.encryption import decrypt_key
 from app.providers.registry import ProviderRegistry
 
+logger = logging.getLogger(__name__)
+
 async def generate_and_update_title(conversation_id: str, prompt: str, user_id: str):
     try:
         async with AsyncSessionLocal() as session:
-            # Look for a groq key first (fastest), then try others
             keys_result = await session.execute(
                 select(ProviderKey).where(ProviderKey.user_id == user_id)
             )
             keys = {pk.provider_name: pk.encrypted_key for pk in keys_result.scalars().all()}
-            
-            target_provider = None
-            target_model = None
-            
-            if "groq" in keys:
-                target_provider = "groq"
-                target_model = "llama3-8b-8192"
-            elif "gemini" in keys:
-                target_provider = "gemini"
-                target_model = "gemini-1.5-flash"
-            elif "anthropic" in keys:
-                target_provider = "anthropic"
-                target_model = "claude-3-haiku-20240307"
-            
-            if not target_provider or not target_model:
+
+            target_provider = next(
+                (name for name in ("groq", "gemini", "anthropic") if name in keys),
+                None,
+            )
+            if not target_provider:
                 return
+
+            target_model = ProviderRegistry.fast_model(target_provider)
 
             plain_key = decrypt_key(keys[target_provider])
             adapter = ProviderRegistry.get_adapter(target_provider)
@@ -56,5 +50,5 @@ async def generate_and_update_title(conversation_id: str, prompt: str, user_id: 
             if conversation:
                 conversation.title = clean_title
                 await session.commit()
-    except Exception as e:
-        print(f"Failed to generate title: {e}")
+    except Exception:
+        logger.warning("Title generation failed for conversation %s", conversation_id)
