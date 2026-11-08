@@ -1,4 +1,5 @@
 import json
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,10 +15,50 @@ from app.core.router import RuleRouter
 from app.core.classifier import TaskClassifier
 from app.core.title_generator import generate_and_update_title
 from app.core.rate_limit import check_rate_limit
+from app.core.errors import ProviderError, ErrorCode
 from app.config import settings
 import asyncio
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def _should_fallback(err: dict) -> bool:
+    return bool(err.get("retryable")) or err.get("code") == ErrorCode.MODEL_UNAVAILABLE.value
+
+
+def _resolve_legacy_route(mode: str | None, provider: str | None, model: str | None):
+    """Treat pre-catalog conversations as Auto instead of failing, with a notice."""
+    if mode not in ("auto", "manual"):
+        return "auto", "This conversation predates routing modes. Using Auto."
+    if mode == "manual" and (
+        not provider or not model or not ProviderRegistry.has_model(provider, model)
+    ):
+        return "auto", "This conversation used a model that is no longer available. Using Auto."
+    return mode, None
+
+
+async def _stream_with_first_chunk_timeout(adapter, api_key: str, model_id: str, messages, provider: str):
+    stream = adapter.stream_chat(api_key=api_key, model_id=model_id, messages=messages)
+    try:
+        try:
+            first = await asyncio.wait_for(
+                stream.__anext__(),
+                timeout=settings.PROVIDER_FIRST_CHUNK_TIMEOUT_SECONDS,
+            )
+        except StopAsyncIteration:
+            return
+        except asyncio.TimeoutError:
+            yield ("error", json.dumps(ProviderError(
+                ErrorCode.TIMEOUT, provider,
+                f"{provider} took too long to start responding.", True
+            ).to_dict()))
+            return
+        yield first
+        async for event in stream:
+            yield event
+    finally:
+        await stream.aclose()
 
 class ChatRequest(BaseModel):
     mode: str = "auto" # "auto" or "manual"
@@ -40,6 +81,7 @@ async def stream_chat(
     )
 
     # Setup conversation
+    legacy_notice = None
     if req.conversation_id:
         conv_result = await db.execute(
             select(Conversation).where(
@@ -50,7 +92,9 @@ async def stream_chat(
         conversation = conv_result.scalars().first()
         if not conversation:
             raise HTTPException(status_code=404, detail="Conversation not found")
-        req_mode = conversation.mode
+        req_mode, legacy_notice = _resolve_legacy_route(
+            conversation.mode, conversation.provider, conversation.model
+        )
         req_provider = conversation.provider
         req_model = conversation.model
     else:
@@ -78,18 +122,21 @@ async def stream_chat(
     await db.commit()
 
     # Routing Logic
+    category = None
+    provider_availability = {}
     if req_mode == "auto":
         keys_result = await db.execute(select(ProviderKey).where(ProviderKey.user_id == current_user.id))
         available_keys = {pk.provider_name: pk.encrypted_key for pk in keys_result.scalars().all()}
-        
 
         category = TaskClassifier.classify(req.message)
-        
+
         provider_availability = {name: True for name in available_keys.keys()}
         target_provider, target_model = RuleRouter.route(category, provider_availability)
     else:
         if not req_provider or not req_model:
             raise HTTPException(status_code=400, detail="Manual mode requires provider and model.")
+        if not ProviderRegistry.has_model(req_provider, req_model):
+            raise HTTPException(status_code=400, detail="Selected model is not available.")
         target_provider = req_provider
         target_model = req_model
 
@@ -137,6 +184,8 @@ async def stream_chat(
                 "conversation_id": conversation.id,
                 "category": getattr(category, "value", str(category)) if req_mode == "auto" else "MANUAL"
             }
+            if legacy_notice:
+                routing_meta["notice"] = legacy_notice
             yield f"event: routing\ndata: {json.dumps(routing_meta)}\n\n"
 
             full_response = ""
@@ -144,7 +193,9 @@ async def stream_chat(
             error_event_data = None
             
             try:
-                async for event, data in adapter.stream_chat(api_key=plain_key, model_id=target_model, messages=api_messages):
+                async for event, data in _stream_with_first_chunk_timeout(
+                    adapter, plain_key, target_model, api_messages, target_provider
+                ):
                     if event == "message":
                         first_chunk_received = True
                         full_response += data
@@ -158,29 +209,28 @@ async def stream_chat(
                         if not first_chunk_received and not fallback_attempted and req_mode == "auto":
                             try:
                                 err_dict = json.loads(data)
-                                if err_dict.get("retryable", False):
+                                if _should_fallback(err_dict):
+                                    if err_dict.get("code") == ErrorCode.MODEL_UNAVAILABLE.value:
+                                        logger.warning(
+                                            "Model unavailable for %s/%s; falling back (auto mode).",
+                                            target_provider, target_model,
+                                        )
                                     error_event_data = data
                                     break
                             except json.JSONDecodeError:
                                 pass
                         yield f"event: error\ndata: {data}\n\n"
             except Exception as e:
-                is_retryable = False
-                if hasattr(e, "retryable"):
-                    is_retryable = getattr(e, "retryable")
-                elif hasattr(e, "to_dict"):
-                    is_retryable = e.to_dict().get("retryable", False)
-                    
-                if not first_chunk_received and not fallback_attempted and req_mode == "auto" and is_retryable:
-                    if hasattr(e, "to_dict"):
-                        error_event_data = json.dumps(e.to_dict())
-                    else:
-                        error_event_data = json.dumps({"detail": str(e)})
+                err_dict = e.to_dict() if hasattr(e, "to_dict") else {"detail": "Provider request failed."}
+                if not first_chunk_received and not fallback_attempted and req_mode == "auto" and _should_fallback(err_dict):
+                    if err_dict.get("code") == ErrorCode.MODEL_UNAVAILABLE.value:
+                        logger.warning(
+                            "Model unavailable for %s/%s; falling back (auto mode).",
+                            target_provider, target_model,
+                        )
+                    error_event_data = json.dumps(err_dict)
                 else:
-                    if hasattr(e, "to_dict"):
-                        yield f"event: error\ndata: {json.dumps(e.to_dict())}\n\n"
-                    else:
-                        yield f"event: error\ndata: {json.dumps({'detail': str(e)})}\n\n"
+                    yield f"event: error\ndata: {json.dumps(err_dict)}\n\n"
                     break
 
             if error_event_data and not fallback_attempted:
@@ -193,7 +243,12 @@ async def stream_chat(
                     # No fallback available
                     yield f"event: error\ndata: {error_event_data}\n\n"
                     break
-                    
+
+                logger.warning(
+                    "Auto fallback: %s/%s -> %s/%s",
+                    target_provider, target_model, fallback_provider, fallback_model,
+                )
+
                 # Fetch fallback provider key
                 result = await db.execute(
                     select(ProviderKey).where(
@@ -218,4 +273,12 @@ async def stream_chat(
             
             break
             
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )

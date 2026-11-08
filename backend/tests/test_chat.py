@@ -1,8 +1,10 @@
 import pytest
 import json
 from httpx import AsyncClient
-from app.db.models import ProviderKey
+from app.db.models import ProviderKey, Conversation
 from app.core.encryption import encrypt_key
+from app.api.chat import _resolve_legacy_route
+from app.config import settings
 from sqlalchemy.future import select
 
 async def _add_key(db_session, user_id: str, provider: str, key_value: str):
@@ -204,3 +206,100 @@ async def test_chat_no_infinite_retry(auth_client, db_session, test_user):
     assert text.count("event: routing") == 2
     assert text.count("event: error") == 1
 
+
+@pytest.mark.asyncio
+async def test_chat_model_unavailable_fallback(auth_client, db_session, test_user, caplog):
+    await _add_key(db_session, test_user.id, "groq", "model_unavailable")
+    await _add_key(db_session, test_user.id, "gemini", "validkey")
+
+    response = await auth_client.post(
+        "/api/chat/",
+        json={"mode": "auto", "message": "hello"}
+    )
+    text = response.text
+    assert text.count("event: routing") == 2
+    assert '"provider": "gemini"' in text
+    assert "mock response" in text
+    assert "Model unavailable" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_chat_manual_error_never_falls_back(auth_client, db_session, test_user):
+    await _add_key(db_session, test_user.id, "mock", "rate_limit")
+    await _add_key(db_session, test_user.id, "gemini", "validkey")
+
+    response = await auth_client.post(
+        "/api/chat/",
+        json={"mode": "manual", "provider": "mock", "model": "mock-model", "message": "hello"}
+    )
+    text = response.text
+    assert text.count("event: routing") == 1
+    assert "event: error" in text
+    assert "RATE_LIMIT" in text
+    assert '"provider": "gemini"' not in text
+
+
+@pytest.mark.asyncio
+async def test_chat_first_chunk_timeout_falls_back(auth_client, db_session, test_user, monkeypatch):
+    monkeypatch.setattr(settings, "PROVIDER_FIRST_CHUNK_TIMEOUT_SECONDS", 0.01)
+    await _add_key(db_session, test_user.id, "groq", "slow")
+    await _add_key(db_session, test_user.id, "gemini", "validkey")
+
+    response = await auth_client.post(
+        "/api/chat/",
+        json={"mode": "auto", "message": "hello"}
+    )
+    text = response.text
+    assert text.count("event: routing") == 2
+    assert '"provider": "gemini"' in text
+    assert "mock response" in text
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_headers(auth_client, db_session, test_user):
+    await _add_key(db_session, test_user.id, "groq", "validkey")
+
+    response = await auth_client.post(
+        "/api/chat/",
+        json={"mode": "auto", "message": "hello"}
+    )
+    assert response.headers["cache-control"] == "no-cache, no-transform"
+    assert response.headers["x-accel-buffering"] == "no"
+
+
+def test_legacy_null_mode_resolves_to_auto():
+    mode, notice = _resolve_legacy_route(None, None, None)
+    assert mode == "auto"
+    assert "predates routing modes" in notice
+
+
+def test_legacy_retired_model_resolves_to_auto():
+    mode, notice = _resolve_legacy_route("manual", "groq", "llama3-8b-8192")
+    assert mode == "auto"
+    assert "no longer available" in notice
+
+
+def test_valid_manual_route_is_untouched():
+    mode, notice = _resolve_legacy_route("manual", "mock", "mock-model")
+    assert mode == "manual"
+    assert notice is None
+
+
+@pytest.mark.asyncio
+async def test_chat_legacy_retired_model_uses_auto(auth_client, db_session, test_user):
+    await _add_key(db_session, test_user.id, "groq", "validkey")
+    conversation = Conversation(
+        user_id=test_user.id, title="legacy", mode="manual",
+        provider="groq", model="llama3-8b-8192"
+    )
+    db_session.add(conversation)
+    await db_session.commit()
+    await db_session.refresh(conversation)
+
+    response = await auth_client.post(
+        "/api/chat/",
+        json={"mode": "auto", "message": "hello", "conversation_id": conversation.id}
+    )
+    text = response.text
+    assert '"mode": "auto"' in text
+    assert "no longer available" in text

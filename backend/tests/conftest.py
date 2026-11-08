@@ -135,7 +135,12 @@ class MockAdapter(BaseProviderAdapter):
         if api_key == "unavailable":
             yield ("error", json.dumps(ProviderError(ErrorCode.PROVIDER_UNAVAILABLE, "mock", "unavailable", True).to_dict()))
             return
-            
+        if api_key == "model_unavailable":
+            yield ("error", json.dumps(ProviderError(ErrorCode.MODEL_UNAVAILABLE, "mock", "model unavailable", False).to_dict()))
+            return
+        if api_key == "slow":
+            await asyncio.sleep(0.2)
+
         yield ("message", "mock response")
         # Echo the system prompt back to easily test it
         sys_prompts = [m["content"] for m in messages if m["role"] == "system"]
