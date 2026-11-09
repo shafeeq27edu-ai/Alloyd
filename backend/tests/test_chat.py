@@ -315,6 +315,49 @@ async def test_chat_rejects_oversized_message(auth_client):
 
 
 @pytest.mark.asyncio
+async def test_chat_switch_mode_on_existing_conversation(auth_client, db_session, test_user):
+    await _add_key(db_session, test_user.id, "mock", "validkey")
+    conversation = Conversation(
+        user_id=test_user.id, title="switch", mode="auto", provider=None, model=None
+    )
+    db_session.add(conversation)
+    await db_session.commit()
+    await db_session.refresh(conversation)
+
+    response = await auth_client.post(
+        "/api/chat/",
+        json={
+            "mode": "manual", "provider": "mock", "model": "mock-model",
+            "message": "hello", "conversation_id": conversation.id,
+        },
+    )
+    text = response.text
+    assert '"mode": "manual"' in text
+    assert '"provider": "mock"' in text
+
+    await db_session.refresh(conversation)
+    assert conversation.mode == "manual"
+    assert conversation.provider == "mock"
+    assert conversation.model == "mock-model"
+
+
+@pytest.mark.asyncio
+async def test_chat_undecryptable_key_returns_actionable_error(auth_client, db_session, test_user):
+    db_session.add(ProviderKey(
+        user_id=test_user.id, provider_name="groq",
+        encrypted_key="not-a-valid-token", key_hint="test",
+    ))
+    await db_session.commit()
+
+    response = await auth_client.post(
+        "/api/chat/",
+        json={"mode": "auto", "message": "hello"},
+    )
+    assert response.status_code == 400
+    assert "re-save" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
 async def test_request_body_limit(async_client, monkeypatch):
     monkeypatch.setattr(settings, "MAX_REQUEST_BYTES", 64)
     response = await async_client.post(

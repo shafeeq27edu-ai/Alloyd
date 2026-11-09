@@ -38,6 +38,20 @@ def _resolve_legacy_route(mode: str | None, provider: str | None, model: str | N
     return mode, None
 
 
+def decrypt_key_safely(cipher_text: str, provider: str) -> str:
+    try:
+        return decrypt_key(cipher_text)
+    except Exception:
+        logger.warning(
+            "Stored key for provider %s could not be decrypted; asking the user to re-save it.",
+            provider,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="Your saved key can no longer be read. Re-save it in Settings.",
+        )
+
+
 async def _stream_with_first_chunk_timeout(adapter, api_key: str, model_id: str, messages, provider: str):
     stream = adapter.stream_chat(api_key=api_key, model_id=model_id, messages=messages)
     try:
@@ -92,11 +106,28 @@ async def stream_chat(
         conversation = conv_result.scalars().first()
         if not conversation:
             raise HTTPException(status_code=404, detail="Conversation not found")
-        req_mode, legacy_notice = _resolve_legacy_route(
+        _, legacy_notice = _resolve_legacy_route(
             conversation.mode, conversation.provider, conversation.model
         )
-        req_provider = conversation.provider
-        req_model = conversation.model
+        if req.mode == "manual":
+            req_mode = "manual"
+            req_provider = req.provider or conversation.provider
+            req_model = req.model or conversation.model
+            unchanged_legacy_route = legacy_notice and (
+                req_provider == conversation.provider and req_model == conversation.model
+            )
+            if unchanged_legacy_route:
+                req_mode, req_provider, req_model = "auto", None, None
+        else:
+            req_mode, req_provider, req_model = "auto", None, None
+
+        if (conversation.mode, conversation.provider, conversation.model) != (
+            req_mode, req_provider, req_model
+        ):
+            conversation.mode = req_mode
+            conversation.provider = req_provider
+            conversation.model = req_model
+            await db.commit()
     else:
         conversation = Conversation(
             user_id=current_user.id, 
@@ -151,8 +182,8 @@ async def stream_chat(
     if not provider_key_record:
         raise HTTPException(status_code=400, detail=f"No API key configured for provider {target_provider}")
     
-    plain_key = decrypt_key(provider_key_record.encrypted_key)
-    
+    plain_key = decrypt_key_safely(provider_key_record.encrypted_key, target_provider)
+
     from app.core.skills import SKILLS
     # Fetch history for context
     msg_result = await db.execute(
@@ -263,7 +294,19 @@ async def stream_chat(
                     
                 target_provider = fallback_provider
                 target_model = fallback_model
-                plain_key = decrypt_key(fallback_key_record.encrypted_key)
+                try:
+                    plain_key = decrypt_key(fallback_key_record.encrypted_key)
+                except Exception:
+                    logger.warning(
+                        "Stored key for provider %s could not be decrypted; asking the user to re-save it.",
+                        fallback_provider,
+                    )
+                    yield (
+                        "event: error\ndata: "
+                        + json.dumps({"detail": "Your saved key can no longer be read. Re-save it in Settings."})
+                        + "\n\n"
+                    )
+                    break
                 try:
                     adapter = ProviderRegistry.get_adapter(target_provider)
                 except ValueError:
