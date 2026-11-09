@@ -15,6 +15,17 @@ from fastapi import Request
 
 router = APIRouter()
 
+
+def _auth_cookie_settings() -> dict:
+    return {
+        "httponly": True,
+        "secure": settings.cookie_secure,
+        "samesite": "lax",
+        "path": "/",
+        "domain": settings.cookie_domain,
+    }
+
+
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
@@ -34,9 +45,8 @@ async def get_csrf_token(response: Response):
     response.set_cookie(
         key="csrf_token",
         value=token,
-        httponly=True,
-        secure=not settings.DEBUG,
-        samesite="lax"
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        **_auth_cookie_settings(),
     )
     return {"csrf_token": token}
 
@@ -65,10 +75,8 @@ async def register(request: Request, user_in: UserCreate, response: Response, db
     response.set_cookie(
         key="access_token",
         value=f"Bearer {access_token}",
-        httponly=True,
-        secure=not settings.DEBUG,
-        samesite="lax",
-        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        **_auth_cookie_settings(),
     )
     return {"success": True}
 
@@ -95,10 +103,8 @@ async def login_for_access_token(request: Request, response: Response, form_data
     response.set_cookie(
         key="access_token",
         value=f"Bearer {access_token}",
-        httponly=True,
-        secure=not settings.DEBUG,
-        samesite="lax",
-        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        **_auth_cookie_settings(),
     )
     return {"success": True}
 
@@ -106,15 +112,11 @@ async def login_for_access_token(request: Request, response: Response, form_data
 async def logout(response: Response):
     response.delete_cookie(
         key="access_token",
-        httponly=True,
-        secure=not settings.DEBUG,
-        samesite="lax"
+        **_auth_cookie_settings(),
     )
     response.delete_cookie(
         key="csrf_token",
-        httponly=True,
-        secure=not settings.DEBUG,
-        samesite="lax"
+        **_auth_cookie_settings(),
     )
     return {"success": True}
 

@@ -1,16 +1,56 @@
+import asyncio
+import logging
+import time
+import uuid
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.config import settings
-from app.db.database import engine, Base
+from app.db.database import check_database, engine, Base
 from app.api import auth, keys, chat, conversations, catalog
 import app.providers  # To register providers
+from app.core.logging_setup import configure_logging, request_id_var
 from app.core.router import RuleRouter
+
+configure_logging()
+logger = logging.getLogger("alloyd.api")
 
 # Refuse to start if router_config references a provider/model outside the catalog.
 RuleRouter.load_and_validate()
 
-app = FastAPI(title=settings.PROJECT_NAME)
+
+async def _wait_for_database() -> None:
+    for attempt in range(1, settings.STARTUP_DB_CHECK_RETRIES + 1):
+        try:
+            await asyncio.wait_for(
+                check_database(), timeout=settings.DB_CONNECT_TIMEOUT_SECONDS
+            )
+        except Exception as exc:
+            logger.warning(
+                "Database check failed (attempt %s/%s): %s",
+                attempt,
+                settings.STARTUP_DB_CHECK_RETRIES,
+                type(exc).__name__,
+            )
+            if attempt >= settings.STARTUP_DB_CHECK_RETRIES:
+                raise RuntimeError(
+                    "Database is not reachable. Check DATABASE_URL."
+                ) from exc
+            await asyncio.sleep(settings.STARTUP_DB_CHECK_DELAY_SECONDS)
+        else:
+            logger.info("Database connection verified.")
+            return
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await _wait_for_database()
+    yield
+
+
+app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -48,6 +88,42 @@ app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(conversations.router, prefix="/api/conversations", tags=["conversations"])
 app.include_router(catalog.router, prefix="/api", tags=["models"])
 
+@app.middleware("http")
+async def request_context(request, call_next):
+    request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+    token = request_id_var.set(request_id)
+    started = time.perf_counter()
+    response = None
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        logger.log(
+            logging.ERROR if response is None else logging.INFO,
+            "request completed",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code if response is not None else 500,
+                "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+            },
+        )
+        request_id_var.reset(token)
+
+
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+
+@app.get("/ready")
+async def readiness_check():
+    try:
+        await asyncio.wait_for(
+            check_database(), timeout=settings.DB_CONNECT_TIMEOUT_SECONDS
+        )
+    except Exception:
+        logger.warning("Readiness check failed: database is not reachable.")
+        return JSONResponse(status_code=503, content={"status": "unavailable"})
+    return {"status": "ready"}
