@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { fetchWithAuth } from "@/lib/api";
 import { SSEParser, type SSEEvent } from "@/lib/sse";
-import Sidebar from "@/components/Sidebar";
+import Sidebar, { type ConversationInfo } from "@/components/Sidebar";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -27,19 +27,26 @@ export default function ChatPage() {
 
   const [mode, setMode] = useState("auto");
   const [models, setModels] = useState<Record<string, ModelOption[]>>({});
+  const [configuredProviders, setConfiguredProviders] = useState<string[]>([]);
   const [selectedProvider, setSelectedProvider] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+  const streamedConversationIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const checkAuth = async () => {
       try {
         await fetchWithAuth("/auth/me");
-        const keysRes = await fetchWithAuth("/keys");
+        const keysRes = await fetchWithAuth("/keys/");
+        let availableProviders: string[] = [];
         if (keysRes.ok) {
           const keysData = await keysRes.json();
-          if (!keysData.keys || keysData.keys.length === 0) {
+          availableProviders = (keysData.keys || []).map(
+            (k: { provider_name: string }) => k.provider_name
+          );
+          setConfiguredProviders(availableProviders);
+          if (availableProviders.length === 0) {
             router.push("/settings?onboarding=true");
           }
         }
@@ -52,7 +59,9 @@ export default function ChatPage() {
             catalog[provider.provider] = provider.models;
           }
           setModels(catalog);
-          const firstProvider = Object.keys(catalog)[0];
+          const firstProvider =
+            Object.keys(catalog).find((p) => availableProviders.includes(p)) ??
+            Object.keys(catalog)[0];
           if (firstProvider && catalog[firstProvider].length > 0) {
             setSelectedProvider(firstProvider);
             setSelectedModel(catalog[firstProvider][0].id);
@@ -66,22 +75,49 @@ export default function ChatPage() {
     checkAuth();
   }, [router]);
 
+  const handleSelectConversation = (conversation: ConversationInfo | null) => {
+    streamedConversationIdRef.current = null;
+    setError(null);
+    setCurrentConversationId(conversation?.id ?? null);
+    if (conversation) {
+      setMode(conversation.mode === "manual" ? "manual" : "auto");
+      if (conversation.mode === "manual" && conversation.provider && conversation.model) {
+        setSelectedProvider(conversation.provider);
+        setSelectedModel(conversation.model);
+      }
+    }
+  };
+
   useEffect(() => {
-    if (currentConversationId) {
-      fetchWithAuth(`/conversations/${currentConversationId}/messages`)
-        .then(res => res.json())
-        .then(data => {
-          setMessages(data.messages || []);
-        });
-    } else {
+    if (!currentConversationId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setMessages([]);
+      return;
     }
+    // A stream created this conversation; its messages are already in state.
+    if (streamedConversationIdRef.current === currentConversationId) return;
+
+    let cancelled = false;
+    fetchWithAuth(`/conversations/${currentConversationId}/messages`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (!cancelled && data) setMessages(data.messages || []);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, [currentConversationId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  const dropEmptyAssistant = () => {
+    setMessages(prev =>
+      prev.length && prev[prev.length - 1].role === "assistant" && !prev[prev.length - 1].content
+        ? prev.slice(0, -1)
+        : prev
+    );
+  };
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
@@ -113,14 +149,15 @@ export default function ChatPage() {
         payload.conversation_id = currentConversationId;
       }
 
-      const response = await fetchWithAuth("/chat", {
+      const response = await fetchWithAuth("/chat/", {
         method: "POST",
         body: JSON.stringify(payload),
       });
 
       if (!response.ok && response.status !== 401) {
-        const err = await response.json();
-        setError(err.detail || "Request failed");
+        const err = await response.json().catch(() => null);
+        setError(err?.detail || `Request failed (${response.status})`);
+        dropEmptyAssistant();
         setIsStreaming(false);
         return;
       }
@@ -156,6 +193,7 @@ export default function ChatPage() {
               userMsg = codes[detail.code] || detail.message || userMsg;
             }
             setError(userMsg);
+            dropEmptyAssistant();
             addToast(typeof userMsg === "string" ? userMsg : "An error occurred", "error");
           } catch {
             setError(ev.data);
@@ -168,22 +206,27 @@ export default function ChatPage() {
           try {
             const routingData = JSON.parse(ev.data);
             if (!currentConversationId) {
+              streamedConversationIdRef.current = routingData.conversation_id;
               setCurrentConversationId(routingData.conversation_id);
+              window.dispatchEvent(new Event("alloyd:conversations-changed"));
             }
             if (routingData.notice && !noticeShown) {
               noticeShown = true;
               addToast(routingData.notice, "info");
             }
             setMessages(prev => {
-              const newMessages = [...prev];
-              const last = newMessages[newMessages.length - 1];
-              if (last.role === "assistant") {
-                last.provider = routingData.provider;
-                last.model = routingData.model;
-                last.mode = routingData.mode;
-                last.category = routingData.category;
-              }
-              return newMessages;
+              const last = prev[prev.length - 1];
+              if (!last || last.role !== "assistant") return prev;
+              return [
+                ...prev.slice(0, -1),
+                {
+                  ...last,
+                  provider: routingData.provider,
+                  model: routingData.model,
+                  mode: routingData.mode,
+                  category: routingData.category,
+                },
+              ];
             });
           } catch { /* ignore parse errors */ }
           return;
@@ -192,13 +235,12 @@ export default function ChatPage() {
         if (ev.event === "message") {
           try {
             const data = JSON.parse(ev.data);
+            // Updaters must stay pure: StrictMode runs them twice in dev, and
+            // mutating `last` would append every token twice.
             setMessages(prev => {
-              const newMessages = [...prev];
-              const last = newMessages[newMessages.length - 1];
-              if (last.role === "assistant") {
-                last.content += data.content;
-              }
-              return newMessages;
+              const last = prev[prev.length - 1];
+              if (!last || last.role !== "assistant") return prev;
+              return [...prev.slice(0, -1), { ...last, content: last.content + data.content }];
             });
           } catch { /* ignore parse errors */ }
         }
@@ -240,10 +282,12 @@ export default function ChatPage() {
     { name: "Research Analysis", prompt: "@researcher Research and analyze: " }
   ];
 
+  const manualProviders = Object.keys(models).filter(p => configuredProviders.includes(p));
+
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-50 overflow-hidden font-sans selection:bg-zinc-800 selection:text-white">
       <Sidebar 
-        onSelect={setCurrentConversationId} 
+        onSelect={handleSelectConversation} 
         currentId={currentConversationId} 
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
@@ -390,7 +434,7 @@ export default function ChatPage() {
                 <div className="flex items-center gap-2 text-xs font-mono text-zinc-500">
                   <span aria-hidden="true">/</span>
                   <Select 
-                    options={Object.keys(models).map(p => ({value: p, label: p}))}
+                    options={manualProviders.map(p => ({value: p, label: p}))}
                     value={selectedProvider} 
                     onChange={val => {
                       setSelectedProvider(val);

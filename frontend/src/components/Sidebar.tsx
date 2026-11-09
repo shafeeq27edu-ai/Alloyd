@@ -5,7 +5,7 @@ import { MessageSquarePlus, Trash2, LogOut, X } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { useRouter } from "next/navigation";
 
-type ConversationInfo = {
+export type ConversationInfo = {
   id: string;
   title: string;
   mode: string;
@@ -20,7 +20,7 @@ export default function Sidebar({
   isOpen,
   onClose
 }: { 
-  onSelect: (id: string | null) => void;
+  onSelect: (conversation: ConversationInfo | null) => void;
   currentId: string | null;
   isOpen: boolean;
   onClose: () => void;
@@ -32,7 +32,7 @@ export default function Sidebar({
   useEffect(() => {
     const loadConversations = async () => {
       try {
-        const res = await fetchWithAuth("/conversations");
+        const res = await fetchWithAuth("/conversations/");
         if (res.ok) {
           const data = await res.json();
           setConversations(data.conversations || []);
@@ -44,7 +44,12 @@ export default function Sidebar({
 
     loadConversations();
     const interval = setInterval(loadConversations, 5000);
-    return () => clearInterval(interval);
+    const refresh = () => { void loadConversations(); };
+    window.addEventListener("alloyd:conversations-changed", refresh);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("alloyd:conversations-changed", refresh);
+    };
   }, []);
 
   useEffect(() => {
@@ -130,7 +135,7 @@ export default function Sidebar({
             >
               <button
                 onClick={() => {
-                  onSelect(c.id);
+                  onSelect(c);
                   if (window.innerWidth < 768) onClose();
                 }}
                 className="flex-1 text-left px-3 py-2.5 truncate focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:ring-inset outline-none rounded-md"
