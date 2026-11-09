@@ -88,9 +88,18 @@ app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(conversations.router, prefix="/api/conversations", tags=["conversations"])
 app.include_router(catalog.router, prefix="/api", tags=["models"])
 
+
+def _safe_request_id(value: str | None) -> str:
+    if value and len(value) <= 64 and value.isascii():
+        cleaned = value.replace("-", "").replace("_", "")
+        if cleaned.isalnum():
+            return value
+    return uuid.uuid4().hex
+
+
 @app.middleware("http")
 async def request_context(request, call_next):
-    request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+    request_id = _safe_request_id(request.headers.get("X-Request-ID"))
     token = request_id_var.set(request_id)
     started = time.perf_counter()
     response = None
