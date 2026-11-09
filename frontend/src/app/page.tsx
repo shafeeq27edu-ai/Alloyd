@@ -33,6 +33,10 @@ export default function ChatPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const streamedConversationIdRef = useRef<string | null>(null);
+  // Which conversation the user is viewing, and which one the live stream
+  // belongs to. When they differ, stream chunks must not touch the view.
+  const activeConversationRef = useRef<string | null>(null);
+  const streamTargetRef = useRef<string | null>(null);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -76,6 +80,7 @@ export default function ChatPage() {
   }, [router]);
 
   const handleSelectConversation = (conversation: ConversationInfo | null) => {
+    activeConversationRef.current = conversation?.id ?? null;
     streamedConversationIdRef.current = null;
     setError(null);
     setCurrentConversationId(conversation?.id ?? null);
@@ -112,11 +117,11 @@ export default function ChatPage() {
   }, [messages]);
 
   const dropEmptyAssistant = () => {
-    setMessages(prev =>
-      prev.length && prev[prev.length - 1].role === "assistant" && !prev[prev.length - 1].content
-        ? prev.slice(0, -1)
-        : prev
-    );
+    setMessages(prev => {
+      if (activeConversationRef.current !== streamTargetRef.current) return prev;
+      const last = prev[prev.length - 1];
+      return last && last.role === "assistant" && !last.content ? prev.slice(0, -1) : prev;
+    });
   };
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -138,6 +143,7 @@ export default function ChatPage() {
     }
     setIsStreaming(true);
     setError(null);
+    streamTargetRef.current = currentConversationId;
 
     try {
       const payload: Record<string, string> = { mode, message: userMsg.content };
@@ -205,8 +211,10 @@ export default function ChatPage() {
         if (ev.event === "routing") {
           try {
             const routingData = JSON.parse(ev.data);
-            if (!currentConversationId) {
+            if (!currentConversationId && activeConversationRef.current === null) {
               streamedConversationIdRef.current = routingData.conversation_id;
+              streamTargetRef.current = routingData.conversation_id;
+              activeConversationRef.current = routingData.conversation_id;
               setCurrentConversationId(routingData.conversation_id);
               window.dispatchEvent(new Event("alloyd:conversations-changed"));
             }
@@ -215,6 +223,7 @@ export default function ChatPage() {
               addToast(routingData.notice, "info");
             }
             setMessages(prev => {
+              if (activeConversationRef.current !== streamTargetRef.current) return prev;
               const last = prev[prev.length - 1];
               if (!last || last.role !== "assistant") return prev;
               return [
@@ -238,6 +247,7 @@ export default function ChatPage() {
             // Updaters must stay pure: StrictMode runs them twice in dev, and
             // mutating `last` would append every token twice.
             setMessages(prev => {
+              if (activeConversationRef.current !== streamTargetRef.current) return prev;
               const last = prev[prev.length - 1];
               if (!last || last.role !== "assistant") return prev;
               return [...prev.slice(0, -1), { ...last, content: last.content + data.content }];
