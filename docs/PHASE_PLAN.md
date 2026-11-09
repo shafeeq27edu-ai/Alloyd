@@ -85,6 +85,8 @@ Read-only audit completed. Findings drive the phases below.
 ---
 
 ## Phase 4 — Config and ship-readiness (without deploying) 🔒
+**Status:** Gate report posted 2026-11-09 (`docs/PHASE4_GATE_REPORT.md`); awaiting `APPROVED PHASE 4`.
+
 **Goal:** the app can be deployed by changing config only.
 
 - All environment-specific values from env vars (API base URL, CORS origins, cookie domain/secure flag, CSP origins); `.env.example` for backend **and** frontend; no hardcoded localhost in code.

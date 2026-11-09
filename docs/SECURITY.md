@@ -99,10 +99,27 @@ Expected tree hits are limited to documented placeholder DSNs in `.env.example` 
 
 Known limitations not covered by the record above remain as listed.
 
+### Phase 4 verification record (2026-11-09)
+
+- Backend suite: 109 passed (including new readiness and cookie-scope tests).
+- Frontend: `npm run lint` clean; `npm run build` succeeded on Next.js 16.4.5.
+- `npm audit`: 0 critical and 0 high after upgrading Next.js to 16.4.5; 10 moderate findings remain in dev-only tooling (`eslint-config-next`'s TypeScript ESLint chain and `@tailwindcss/typography`), whose only suggested fixes are semver-major downgrades.
+- Compose stack built and ran with Postgres 16, a one-shot Alembic migration, the API, and the standalone Next.js image. The host ports 5432/8000/3000 were already occupied (Windows reserves 5432), so this run published 5433/8001/3001; the compose file defaults to the standard ports.
+- Liveness and readiness: `GET /health` → 200; `GET /ready` → 200. Stopping Postgres made `/ready` return 503; restarting it returned 200 without restarting the API.
+- Sibling-host login: with `ALLOWED_ORIGINS=http://app.lvh.me:3001` and `COOKIE_DOMAIN=.lvh.me`, the browser registered and signed in at `app.lvh.me:3001` against `api.lvh.me:8001`. `Set-Cookie` carried `Domain=.lvh.me; HttpOnly; SameSite=lax; Path=/` and the authenticated `/api/auth/me` call returned 200 from a cookie jar holding only `.lvh.me` cookies.
+- CSRF/CORS across hosts: the CSRF request returned `Access-Control-Allow-Origin: http://app.lvh.me:3001` with credentials allowed; origin-less and mismatched-origin state changes remain blocked by the Phase 3 checks.
+- Structured logs: API request lines are JSON with method, path, status, duration, and request ID only. A scan of the running backend logs for credential patterns, `Bearer`, API-key fields, and DSNs found 0 hits.
+- Provider smoke inside the container: NOT RUN (no provider keys are provided to the compose stack, and keys are never baked into images).
+
+Known limitations not covered by the record above remain as listed.
+
 ## Production checklist
 
 - `DEBUG=false`, strong `SECRET_KEY` and valid `ENCRYPTION_KEY` (startup refuses otherwise).
 - `TRUSTED_PROXIES` set to the actual ingress proxy, not left open.
-- `ALLOWED_ORIGINS` lists the exact frontend origin(s).
-- `NEXT_PUBLIC_API_BASE_URL` set at build time so CSP `connect-src` includes the API origin.
+- `ALLOWED_ORIGINS` lists the exact frontend origin(s); wildcards are rejected.
+- `COOKIE_DOMAIN` set to the parent domain when the web app and API are sibling subdomains; `COOKIE_SECURE=true`.
+- `NEXT_PUBLIC_API_BASE_URL` set at build time so the client bundle and CSP `connect-src` use the API origin. Rebuild the frontend image when it changes.
+- Database migrations applied with `alembic upgrade head` (or the compose `migrate` service) before serving traffic.
+- Behind a PgBouncer transaction pooler, verify `DB_DISABLE_PREPARED_STATEMENTS` is effective (auto-detected for Supabase poolers and port 6543).
 - HTTPS terminated at the proxy; HSTS enabled.

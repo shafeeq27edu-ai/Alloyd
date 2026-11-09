@@ -106,3 +106,29 @@
 **Why:** The app-level run exercises the same server-side adapters, key decryption, and SSE path without exposing stored keys, so it is stronger than a mocked test for Groq. It cannot substitute for keys the project does not have.
 
 **Revisit if:** Gemini or Anthropic keys are added, or before the Phase 9 release audit.
+
+## 2026-11-09 — Phase 4 configuration, cookies, and the compose migration step
+
+**Context:** Phase 4 requires that deployment be a configuration change only, including a frontend and API on sibling subdomains of one parent domain, plus a local production-like stack with Postgres.
+
+**Options:**
+- Cookie scope: (a) one parent-domain cookie configured by `COOKIE_DOMAIN`; (b) separate tokens per subdomain; (c) proxy the API through the frontend origin.
+- Secure flag: (a) derive from `DEBUG` with an explicit `COOKIE_SECURE` override; (b) always on; (c) always off.
+- Migrations in Docker: (a) a one-shot `migrate` service that the API waits for; (b) run `alembic upgrade head` inside the API entrypoint on every boot; (c) document a manual command only.
+- Pooler support: (a) auto-detect the Supabase transaction pooler / port 6543 and disable asyncpg's statement cache; (b) require a query parameter from the operator.
+
+**Decision:** (a) in each case. `COOKIE_SECURE` overrides the `DEBUG`-derived default; migrations are a separate compose service gated by `service_completed_successfully`; pooler detection is automatic with `DB_DISABLE_PREPARED_STATEMENTS` as an explicit override.
+
+**Why:** A parent-domain cookie is the only approach that keeps one session for both hosts without a proxy or a second login. Deriving Secure from DEBUG keeps local HTTP workable while production stays secure by default. Auto-migrating inside the API hides failures and races with multiple replicas; a one-shot service makes the step explicit and repeatable. The pooler detection prevents intermittent `prepared statement "__asyncpg_stmt_…" does not exist` errors without every operator needing to know the asyncpg quirk.
+
+**Revisit if:** the product moves to separate registrable domains (then CORS credentials and cookie scope must be redesigned), or migrations gain a release pipeline outside compose.
+
+## 2026-11-09 — Two-host local verification uses lvh.me
+
+**Context:** The Phase 4 acceptance run needs a frontend and API on sibling subdomains without asking the owner to edit the hosts file.
+
+**Decision:** Use `app.lvh.me:3000` and `api.lvh.me:8000`. Public wildcard DNS resolves `*.lvh.me` to `127.0.0.1`, so no hosts-file entry or admin rights are needed, and `lvh.me` is a registrable domain, making both hosts same-site for `SameSite=Lax`.
+
+**Why:** It exercises the real cookie-domain and CORS paths rather than a same-origin proxy, and it is reproducible on any machine.
+
+**Revisit if:** a local TLS setup is needed; then `lvh.me` still works with a self-signed certificate and `COOKIE_SECURE=true`.
