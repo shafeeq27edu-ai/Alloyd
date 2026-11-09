@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -10,6 +11,7 @@ from app.providers.registry import ProviderRegistry
 from app.core.errors import ProviderError, ErrorCode
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 class KeyCreate(BaseModel):
     provider_name: str = Field(max_length=32)
@@ -45,6 +47,15 @@ async def add_provider_key(
             raise HTTPException(status_code=429, detail="Provider rate limit reached. Try again later.")
         else:
             raise HTTPException(status_code=502, detail="Could not verify the key right now.")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning(
+            "Key validation crashed for provider %s (%s).",
+            key_in.provider_name,
+            type(exc).__name__,
+        )
+        raise HTTPException(status_code=502, detail="Could not verify the key right now.")
     
     encrypted = encrypt_key(key_in.key)
     # Extract last 4 characters for key_hint
