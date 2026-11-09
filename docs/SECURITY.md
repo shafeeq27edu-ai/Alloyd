@@ -101,12 +101,14 @@ Known limitations not covered by the record above remain as listed.
 
 ### Phase 4 verification record (2026-11-09)
 
-- Backend suite: 109 passed (including new readiness and cookie-scope tests).
+- Backend suite: 112 passed (including new readiness, cookie-scope, and request-ID tests).
 - Frontend: `npm run lint` clean; `npm run build` succeeded on Next.js 16.4.5.
 - `npm audit`: 0 critical and 0 high after upgrading Next.js to 16.4.5; 10 moderate findings remain in dev-only tooling (`eslint-config-next`'s TypeScript ESLint chain and `@tailwindcss/typography`), whose only suggested fixes are semver-major downgrades.
 - Compose stack built and ran with Postgres 16, a one-shot Alembic migration, the API, and the standalone Next.js image. The host ports 5432/8000/3000 were already occupied (Windows reserves 5432), so this run published 5433/8001/3001; the compose file defaults to the standard ports.
 - Liveness and readiness: `GET /health` → 200; `GET /ready` → 200. Stopping Postgres made `/ready` return 503; restarting it returned 200 without restarting the API.
 - Sibling-host login: with `ALLOWED_ORIGINS=http://app.lvh.me:3001` and `COOKIE_DOMAIN=.lvh.me`, the browser registered and signed in at `app.lvh.me:3001` against `api.lvh.me:8001`. `Set-Cookie` carried `Domain=.lvh.me; HttpOnly; SameSite=lax; Path=/` and the authenticated `/api/auth/me` call returned 200 from a cookie jar holding only `.lvh.me` cookies.
+- Sibling-host logout (cookie jar against `api.lvh.me:8010`): `POST /api/auth/logout` returned two `Set-Cookie` headers, one per cookie, each carrying `Domain=.lvh.me; HttpOnly; SameSite=lax; Path=/; Max-Age=0`, and `/api/auth/me` returned 401 afterwards. The register response body contained only `{"success": true}` (no token).
+- Request IDs: a well-formed `X-Request-ID` is echoed and logged; a value containing spaces or non-ASCII characters is replaced with a generated 32-character hex ID, so clients cannot inject arbitrary text into log lines.
 - CSRF/CORS across hosts: the CSRF request returned `Access-Control-Allow-Origin: http://app.lvh.me:3001` with credentials allowed; origin-less and mismatched-origin state changes remain blocked by the Phase 3 checks.
 - Structured logs: API request lines are JSON with method, path, status, duration, and request ID only. A scan of the running backend logs for credential patterns, `Bearer`, API-key fields, and DSNs found 0 hits.
 - Provider smoke inside the container: NOT RUN (no provider keys are provided to the compose stack, and keys are never baked into images).
