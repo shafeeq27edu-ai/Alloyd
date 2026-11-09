@@ -1,14 +1,18 @@
 "use client";
-import { useState, useEffect, Suspense, useCallback } from "react";
-import { fetchWithAuth } from "@/lib/api";
+import { useState, useEffect, useRef, Suspense, useCallback } from "react";
+import { fetchWithAuth, resetCsrfToken } from "@/lib/api";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/components/Toast";
 import Select from "@/components/Select";
-import { Settings2, X, Trash2 } from "lucide-react";
+import { Settings2, X, Trash2, LogOut } from "lucide-react";
 
 function SettingsContent() {
   const [provider, setProvider] = useState("groq");
   const [key, setKey] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  // State updates don't land before a same-tick double click re-enters the
+  // handler, so the ref is the actual guard; the state only drives the button.
+  const savingRef = useRef(false);
   const [configuredKeys, setConfiguredKeys] = useState<{provider_name: string, masked_key: string}[]>([]);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -17,7 +21,7 @@ function SettingsContent() {
 
   const fetchKeys = useCallback(async () => {
     try {
-      const res = await fetchWithAuth("/keys");
+      const res = await fetchWithAuth("/keys/");
       if (res.ok) {
         const data = await res.json();
         setConfiguredKeys(data.keys || []);
@@ -38,8 +42,11 @@ function SettingsContent() {
       addToast("Please enter an API key", "error");
       return;
     }
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setIsSaving(true);
     try {
-      const res = await fetchWithAuth("/keys", {
+      const res = await fetchWithAuth("/keys/", {
         method: "POST",
         body: JSON.stringify({ provider_name: provider, key }),
       });
@@ -47,6 +54,7 @@ function SettingsContent() {
         setKey("");
         fetchKeys();
         addToast("Key saved successfully", "success");
+        if (isOnboarding) router.push("/");
       } else {
         const data = await res.json().catch(() => null);
         if (res.status === 400) {
@@ -61,6 +69,9 @@ function SettingsContent() {
       }
     } catch {
       addToast("Network error saving key", "error");
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
     }
   };
 
@@ -76,6 +87,17 @@ function SettingsContent() {
       }
     } catch {
       addToast("Network error", "error");
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      const res = await fetchWithAuth("/auth/logout", { method: "POST" });
+      resetCsrfToken();
+      if (res.ok) router.push("/login");
+      else addToast("Failed to sign out", "error");
+    } catch {
+      addToast("Network error during sign out", "error");
     }
   };
 
@@ -162,12 +184,24 @@ function SettingsContent() {
             </div>
             <button 
               type="submit" 
+              disabled={isSaving}
               className="w-full py-2.5 mt-1 bg-zinc-100 hover:bg-white text-zinc-950 font-medium rounded-lg transition-colors text-sm shadow-sm disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 outline-none cursor-pointer"
             >
-              Save Provider Key
+              {isSaving ? "Saving…" : "Save Provider Key"}
             </button>
           </div>
         </form>
+
+        <div className="mt-6 pt-5 border-t border-zinc-800 flex justify-center">
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="flex items-center gap-2 text-xs font-medium text-zinc-500 hover:text-zinc-200 transition-colors px-3 py-1.5 rounded-md hover:bg-zinc-800/50 focus-visible:ring-2 focus-visible:ring-zinc-500 outline-none"
+          >
+            <LogOut size={14} />
+            Sign out
+          </button>
+        </div>
       </div>
     </div>
   );
