@@ -14,6 +14,10 @@ function toOrigin(value: string | undefined): string {
 const apiOrigin =
   toOrigin(process.env.NEXT_PUBLIC_API_BASE_URL) || (isProd ? "" : "http://localhost:8000");
 
+if (isProd && !apiOrigin) {
+  throw new Error("NEXT_PUBLIC_API_BASE_URL must be set for production builds.");
+}
+
 const allowedDevOrigins = (process.env.NEXT_ALLOWED_DEV_ORIGINS ?? "")
   .split(",")
   .map((origin) => origin.trim())
