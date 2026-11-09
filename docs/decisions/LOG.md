@@ -96,3 +96,13 @@
 **Why:** Fallback only hides the problem for Auto users and cannot help Manual mode; the catalog is the single source of truth and must name models that exist. Model IDs rot faster than the app, so this refresh should be repeated before release audits.
 
 **Revisit if:** a provider deprecates these IDs, or a live catalog check can be automated in CI.
+
+## 2026-11-09 — Phase 3 closed with Groq verified live
+
+**Context:** Phase 3 acceptance requires per-fix tests, documented manual checks of cookie flags and headers, a clean secret scan of tree and history, and no secret-like values in test logs. The Phase 2 real-provider smoke was still NOT RUN.
+
+**Decision:** Close Phase 3 with the evidence recorded in `docs/SECURITY.md`. Real-provider compatibility for the one configured provider (Groq) was verified through the running app: both catalog models in Manual mode and Auto routing streamed and persisted correctly. Gemini and Anthropic remain NOT RUN because no keys are configured; `backend/scripts/smoke_providers.py` is still the path to cover them.
+
+**Why:** The app-level run exercises the same server-side adapters, key decryption, and SSE path without exposing stored keys, so it is stronger than a mocked test for Groq. It cannot substitute for keys the project does not have.
+
+**Revisit if:** Gemini or Anthropic keys are added, or before the Phase 9 release audit.

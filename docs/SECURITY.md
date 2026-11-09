@@ -1,6 +1,6 @@
 # Alloyd Security Model
 
-Status: Phase 3 (2026-11-08). This documents what is protected, how, and what is explicitly not.
+Status: Phase 3 complete (2026-11-09). This documents what is protected, how, and what is explicitly not.
 
 ## Assets
 
@@ -87,6 +87,17 @@ cd backend && ./.venv/Scripts/python.exe -m pytest -q
 ```
 
 Expected tree hits are limited to documented placeholder DSNs in `.env.example` and `tests/test_config.py`; history should be empty.
+
+### Verification record (2026-11-09)
+
+- Secret scan of the tracked tree and of every commit in `git rev-list --all`: 0 hits.
+- Backend suite: 103 passed. The captured pytest log contains 0 credential-pattern hits and 0 DSN-shaped strings.
+- Cookie flags observed on a live login over plain HTTP with `DEBUG` off: `access_token` = `HttpOnly; Secure; SameSite=lax; Path=/; Max-Age=604800`; the response body contains no token. `csrf_token` = `HttpOnly; Path=/; SameSite=lax; Secure`.
+- Headers observed live: backend sends `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, and HSTS; Next.js sends the CSP (dev keeps `unsafe-eval`, the production build drops it) and `Permissions-Policy`.
+- CSRF and origin on `POST /api/auth/logout`: valid token with `Origin: https://evil.example` → 403; missing token → 403; valid token with an allowed origin → 200.
+- Real providers, exercised through the running app so stored keys are never exposed: Groq `openai/gpt-oss-120b` and `openai/gpt-oss-20b` in Manual mode, and Auto routing, each streamed a `done` event and replied exactly `OK`; the reply was stored once. Gemini and Anthropic: NOT RUN (no keys configured).
+
+Known limitations not covered by the record above remain as listed.
 
 ## Production checklist
 
