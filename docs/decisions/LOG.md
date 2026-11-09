@@ -82,3 +82,17 @@
 **Why:** `SameSite=Strict` breaks the sibling-subdomain flow planned for Phase 4 and does not cover same-site attacks. No in-repo client consumes the JSON token. An allowlist keeps rate limiting meaningful behind a proxy without trusting spoofed headers. A nonce CSP needs more frontend plumbing than this phase allows; `unsafe-inline` is the recorded residual risk in `docs/SECURITY.md`.
 
 **Revisit if:** non-browser API clients need a token flow, a shared rate-limit store is introduced, or the frontend adopts nonce-based CSP.
+
+## 2026-11-09 — Refresh the provider model catalog from live catalogs
+
+**Context:** The walkthrough found every chat failing with `MODEL_UNAVAILABLE`. Groq retired the Llama 3.3/3.1 chat models on 2026-08-16, so the catalog and `router_config.yaml` pointed at IDs the API no longer serves. The Gemini Pro ID had also drifted.
+
+**Options:**
+- (a) Keep the old IDs and rely on Auto fallback.
+- (b) Update adapter catalogs and routes to IDs the providers currently serve: `groq/openai/gpt-oss-120b` and `openai/gpt-oss-20b`, `gemini/gemini-3.1-pro-preview` and `gemini-3.8-flash`, Anthropic `claude-sonnet-5-5` / `claude-haiku-5-5`.
+
+**Decision:** (b). Startup validation still refuses unknown IDs, so a future retirement fails loudly instead of silently routing.
+
+**Why:** Fallback only hides the problem for Auto users and cannot help Manual mode; the catalog is the single source of truth and must name models that exist. Model IDs rot faster than the app, so this refresh should be repeated before release audits.
+
+**Revisit if:** a provider deprecates these IDs, or a live catalog check can be automated in CI.
