@@ -15,7 +15,7 @@ class GeminiAdapter(BaseProviderAdapter):
 
     def get_models(self) -> List[ModelDefinition]:
         return [
-            ModelDefinition(id="gemini-4-argon", name="Gemini 4 Argon", capabilities=["chat", "reasoning", "multimodal", "long_context"]),
+            ModelDefinition(id="gemini-3.1-pro-preview", name="Gemini 3.1 Pro", capabilities=["chat", "reasoning", "multimodal", "long_context"]),
             ModelDefinition(id="gemini-3.8-flash", name="Gemini 3.8 Flash", capabilities=["chat", "fast", "multimodal"])
         ]
 

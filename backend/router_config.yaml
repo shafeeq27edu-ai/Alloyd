@@ -5,11 +5,11 @@ routes:
       model: claude-sonnet-5-5
     fallback:
       provider: groq
-      model: llama-3.3-70b-versatile
+      model: openai/gpt-oss-120b
   RESEARCH:
     primary:
       provider: gemini
-      model: gemini-4-argon
+      model: gemini-3.1-pro-preview
     fallback:
       provider: anthropic
       model: claude-sonnet-5-5
@@ -19,18 +19,18 @@ routes:
       model: claude-sonnet-5-5
     fallback:
       provider: groq
-      model: llama-3.3-70b-versatile
+      model: openai/gpt-oss-120b
   PLANNING_DECISION:
     primary:
       provider: anthropic
       model: claude-sonnet-5-5
     fallback:
       provider: gemini
-      model: gemini-4-argon
+      model: gemini-3.1-pro-preview
   GENERAL:
     primary:
       provider: groq
-      model: llama-3.1-8b-instant
+      model: openai/gpt-oss-20b
     fallback:
       provider: gemini
       model: gemini-3.8-flash

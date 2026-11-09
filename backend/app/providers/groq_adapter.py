@@ -12,8 +12,8 @@ class GroqAdapter(BaseProviderAdapter):
 
     def get_models(self) -> List[ModelDefinition]:
         return [
-            ModelDefinition(id="llama-3.3-70b-versatile", name="Llama 3.3 70B Versatile", capabilities=["chat", "reasoning"]),
-            ModelDefinition(id="llama-3.1-8b-instant", name="Llama 3.1 8B Instant", capabilities=["chat", "fast"])
+            ModelDefinition(id="openai/gpt-oss-120b", name="GPT-OSS 120B", capabilities=["chat", "reasoning"]),
+            ModelDefinition(id="openai/gpt-oss-20b", name="GPT-OSS 20B", capabilities=["chat", "fast"])
         ]
 
     def _map_error(self, e: Exception) -> ProviderError:

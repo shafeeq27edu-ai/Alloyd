@@ -39,6 +39,15 @@ class RuleRouter:
             return primary["provider"], primary["model"]
 
         fallback = route_info["fallback"]
+        if provider_availability.get(fallback["provider"], False):
+            return fallback["provider"], fallback["model"]
+
+        # Single-key workspaces: use whatever provider they actually configured
+        # instead of routing to a provider with no stored key.
+        for provider, available in provider_availability.items():
+            if available:
+                return provider, ProviderRegistry.fast_model(provider)
+
         return fallback["provider"], fallback["model"]
 
 

@@ -48,14 +48,20 @@ def temp_provider():
 
 def test_catalog_model_ids_are_current():
     assert {m.id for m in GroqAdapter().get_models()} == {
-        "llama-3.3-70b-versatile", "llama-3.1-8b-instant",
+        "openai/gpt-oss-120b", "openai/gpt-oss-20b",
     }
     assert {m.id for m in AnthropicAdapter().get_models()} == {
         "claude-sonnet-5-5", "claude-haiku-5-5",
     }
     assert {m.id for m in GeminiAdapter().get_models()} == {
-        "gemini-4-argon", "gemini-3.8-flash",
+        "gemini-3.1-pro-preview", "gemini-3.8-flash",
     }
+
+
+def test_route_uses_any_keyed_provider_when_route_unavailable():
+    provider, model = RuleRouter.route(TaskCategory.RESEARCH, {"groq": True})
+    assert provider == "groq"
+    assert model == "mock-model"
 
 
 def test_router_config_matches_real_catalog():
