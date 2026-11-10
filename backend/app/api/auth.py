@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from app.db.database import get_db
-from app.db.models import User
+from app.db.models import User, ProviderKey, Conversation, Message
 from app.core.security import verify_password, get_password_hash, create_access_token
 from datetime import timedelta
 from app.config import settings
@@ -38,6 +39,9 @@ class UserCreate(BaseModel):
         if len(v.encode('utf-8')) > 72:
             raise ValueError("Password is too long (maximum 72 bytes)")
         return v
+
+class DeleteAccountRequest(BaseModel):
+    password: str = Field(min_length=1, max_length=200)
 
 @router.get("/csrf")
 async def get_csrf_token(response: Response):
@@ -119,6 +123,34 @@ async def logout(response: Response):
         **_auth_cookie_settings(),
     )
     return {"success": True}
+
+@router.delete("/account", dependencies=[Depends(verify_csrf)])
+async def delete_account(
+    request: Request,
+    payload: DeleteAccountRequest,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await check_rate_limit(
+        f"delete_account:{current_user.id}:{get_client_ip(request)}",
+        settings.LOGIN_RATE_LIMIT,
+        settings.LOGIN_RATE_WINDOW
+    )
+    if not verify_password(payload.password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Incorrect password")
+
+    conversation_ids = select(Conversation.id).where(Conversation.user_id == current_user.id)
+    await db.execute(delete(Message).where(Message.conversation_id.in_(conversation_ids)))
+    await db.execute(delete(Conversation).where(Conversation.user_id == current_user.id))
+    await db.execute(delete(ProviderKey).where(ProviderKey.user_id == current_user.id))
+    await db.execute(delete(User).where(User.id == current_user.id))
+    await db.commit()
+
+    response.delete_cookie(key="access_token", **_auth_cookie_settings())
+    response.delete_cookie(key="csrf_token", **_auth_cookie_settings())
+    return {"success": True}
+
 
 @router.get("/me")
 async def read_users_me(current_user: User = Depends(get_current_user)):

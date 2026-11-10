@@ -155,3 +155,55 @@ async def test_authenticated(auth_client, test_user):
     response = await auth_client.get("/api/auth/me")
     assert response.status_code == 200
     assert response.json()["email"] == "test@example.com"
+
+
+@pytest.mark.asyncio
+async def test_delete_account_removes_user_data(auth_client, db_session, test_user, test_user_2):
+    from sqlalchemy.future import select
+    from app.core.encryption import encrypt_key
+    from app.db.models import Conversation, Message, ProviderKey, User
+
+    db_session.add(ProviderKey(
+        user_id=test_user.id, provider_name="groq",
+        encrypted_key=encrypt_key("secret"), key_hint="cret",
+    ))
+    mine = Conversation(user_id=test_user.id, title="mine", mode="auto")
+    theirs = Conversation(user_id=test_user_2.id, title="theirs", mode="auto")
+    db_session.add_all([mine, theirs])
+    await db_session.commit()
+    await db_session.refresh(mine)
+    db_session.add(Message(conversation_id=mine.id, role="user", content="hello"))
+    await db_session.commit()
+
+    response = await auth_client.request(
+        "DELETE", "/api/auth/account", json={"password": "test-password-123"}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"success": True}
+
+    users = (await db_session.execute(select(User))).scalars().all()
+    assert [u.id for u in users] == [test_user_2.id]
+    conversations = (await db_session.execute(select(Conversation))).scalars().all()
+    assert [c.id for c in conversations] == [theirs.id]
+    messages = (await db_session.execute(select(Message))).scalars().all()
+    assert messages == []
+    keys = (await db_session.execute(select(ProviderKey))).scalars().all()
+    assert keys == []
+
+    me = await auth_client.get("/api/auth/me")
+    assert me.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_delete_account_requires_the_password(auth_client, db_session, test_user):
+    from sqlalchemy.future import select
+    from app.db.models import User
+
+    response = await auth_client.request(
+        "DELETE", "/api/auth/account", json={"password": "wrong-password"}
+    )
+    assert response.status_code == 400
+    assert "password" in response.json()["detail"].lower()
+
+    users = (await db_session.execute(select(User))).scalars().all()
+    assert len(users) == 1
