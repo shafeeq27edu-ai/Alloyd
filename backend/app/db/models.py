@@ -31,7 +31,7 @@ class ProviderKey(Base):
 class Conversation(Base):
     __tablename__ = "conversations"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mode: Mapped[str] = mapped_column(String(50), default="auto") # "auto" or "manual"
     provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -44,7 +44,7 @@ class Conversation(Base):
 class Message(Base):
     __tablename__ = "messages"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id"))
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id"), index=True)
     role: Mapped[str] = mapped_column(String(50)) # user or assistant
     content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
