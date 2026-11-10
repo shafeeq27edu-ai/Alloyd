@@ -8,7 +8,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { Menu, Settings, SendHorizontal, AlertCircle, Sparkles } from "lucide-react";
+import { Menu, Settings, SendHorizontal, AlertCircle, Sparkles, Square, RotateCcw, Copy, Check } from "lucide-react";
 import Select from "@/components/Select";
 import { useToast } from "@/components/Toast";
 
@@ -37,6 +37,9 @@ export default function ChatPage() {
   // belongs to. When they differ, stream chunks must not touch the view.
   const activeConversationRef = useRef<string | null>(null);
   const streamTargetRef = useRef<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const lastUserTextRef = useRef("");
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -132,21 +135,26 @@ export default function ChatPage() {
     }
   };
 
-  const handleSend = async (messageText = input) => {
-    if (!messageText.trim() || isStreaming) return;
-    
-    const userMsg = { role: "user", content: messageText };
-    setMessages(prev => [...prev, userMsg, { role: "assistant", content: "" }]);
-    if (messageText === input) {
-      setInput("");
-      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+  const runChat = async ({ message, regenerate = false }: { message: string; regenerate?: boolean }) => {
+    if (isStreaming) return;
+    if (!regenerate && !message.trim()) return;
+
+    lastUserTextRef.current = message;
+    if (regenerate) {
+      setMessages(prev => [...prev, { role: "assistant", content: "" }]);
+    } else {
+      setMessages(prev => [...prev, { role: "user", content: message }, { role: "assistant", content: "" }]);
     }
     setIsStreaming(true);
     setError(null);
     streamTargetRef.current = currentConversationId;
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      const payload: Record<string, string> = { mode, message: userMsg.content };
+      const payload: Record<string, string | boolean> = { mode, message };
+      if (regenerate) payload.regenerate = true;
       if (mode === "manual") {
         payload.provider = selectedProvider;
         payload.model = selectedModel;
@@ -158,13 +166,13 @@ export default function ChatPage() {
       const response = await fetchWithAuth("/chat/", {
         method: "POST",
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
 
       if (!response.ok && response.status !== 401) {
         const err = await response.json().catch(() => null);
         setError(err?.detail || `Request failed (${response.status})`);
         dropEmptyAssistant();
-        setIsStreaming(false);
         return;
       }
 
@@ -275,11 +283,65 @@ export default function ChatPage() {
       if (stopped) {
         await reader.cancel().catch(() => {});
       }
-    } catch {
-      setError("Network error — unable to reach the server.");
-      addToast("Network error — please check your connection.", "error");
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        dropEmptyAssistant();
+        addToast("Generation stopped", "info");
+      } else {
+        setError("Network error — unable to reach the server.");
+        addToast("Network error — please check your connection.", "error");
+      }
     } finally {
+      abortRef.current = null;
       setIsStreaming(false);
+    }
+  };
+
+  const handleSend = async (messageText = input) => {
+    if (!messageText.trim() || isStreaming) return;
+    if (messageText === input) {
+      setInput("");
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    }
+    await runChat({ message: messageText });
+  };
+
+  const handleStop = () => {
+    abortRef.current?.abort();
+  };
+
+  const handleRegenerate = () => {
+    if (isStreaming || !currentConversationId) return;
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== "assistant") return;
+    const lastUser = [...messages].reverse().find(m => m.role === "user");
+    if (!lastUser) return;
+    setMessages(prev => prev.slice(0, -1));
+    void runChat({ message: lastUser.content, regenerate: true });
+  };
+
+  const handleRetry = () => {
+    if (isStreaming) return;
+    const text = lastUserTextRef.current;
+    if (!text) return;
+    if (currentConversationId) {
+      void runChat({ message: text, regenerate: true });
+    } else {
+      const last = messages[messages.length - 1];
+      if (last?.role === "user" && last.content === text) {
+        setMessages(prev => prev.slice(0, -1));
+      }
+      void handleSend(text);
+    }
+  };
+
+  const handleCopy = async (index: number, content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex(null), 1500);
+    } catch {
+      addToast("Could not copy to clipboard", "error");
     }
   };
 
@@ -361,25 +423,47 @@ export default function ChatPage() {
                     </div>
                   ) : (
                     <div className="flex flex-col w-full min-w-0">
-                      {m.provider && (
-                        <div className="flex items-center gap-2 mb-2 text-xs font-mono text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <span className="uppercase text-zinc-400 font-medium">{m.provider}</span>
-                          <span className="text-zinc-700" aria-hidden="true">/</span>
-                          <span>{m.model}</span>
-                          {m.category && (
-                            <>
-                              <span className="text-zinc-700" aria-hidden="true">/</span>
-                              <span className="text-zinc-400">{m.category}</span>
-                            </>
-                          )}
-                          {m.mode === 'auto' && (
-                            <span className="ml-2 flex items-center gap-1 text-zinc-400 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-[11px]">
-                              <Sparkles size={10} />
-                              Auto
-                            </span>
-                          )}
-                        </div>
-                      )}
+                      <div className="flex items-center gap-2 mb-2 min-h-[20px] text-xs font-mono text-zinc-500">
+                        {m.provider && (
+                          <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <span className="uppercase text-zinc-400 font-medium">{m.provider}</span>
+                            <span className="text-zinc-700" aria-hidden="true">/</span>
+                            <span>{m.model}</span>
+                            {m.category && (
+                              <>
+                                <span className="text-zinc-700" aria-hidden="true">/</span>
+                                <span className="text-zinc-400">{m.category}</span>
+                              </>
+                            )}
+                            {m.mode === 'auto' && (
+                              <span className="ml-2 flex items-center gap-1 text-zinc-400 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-[11px]">
+                                <Sparkles size={10} />
+                                Auto
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {m.content && (
+                          <div className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                            <button
+                              onClick={() => handleCopy(i, m.content)}
+                              className="p-1.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60 rounded-md transition-colors focus-visible:ring-2 focus-visible:ring-zinc-500 outline-none"
+                              aria-label={copiedIndex === i ? "Copied" : "Copy response"}
+                            >
+                              {copiedIndex === i ? <Check size={13} /> : <Copy size={13} />}
+                            </button>
+                            {i === messages.length - 1 && !isStreaming && (
+                              <button
+                                onClick={handleRegenerate}
+                                className="p-1.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60 rounded-md transition-colors focus-visible:ring-2 focus-visible:ring-zinc-500 outline-none"
+                                aria-label="Regenerate response"
+                              >
+                                <RotateCcw size={13} />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                       <div className="prose prose-invert prose-zinc max-w-none text-[15px] prose-p:leading-relaxed prose-pre:bg-zinc-900 prose-pre:border prose-pre:border-zinc-800/80 prose-pre:shadow-sm prose-code:text-zinc-300 prose-a:text-blue-400">
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
@@ -423,6 +507,13 @@ export default function ChatPage() {
             >
               <AlertCircle size={16} className="mt-0.5 flex-shrink-0 text-red-400" />
               <span>{typeof error === 'string' ? error : 'An unexpected error occurred.'}</span>
+              <button
+                onClick={handleRetry}
+                disabled={isStreaming}
+                className="ml-auto shrink-0 px-3 py-1.5 rounded-lg border border-red-900/60 text-red-200 hover:bg-red-900/30 disabled:opacity-40 transition-colors focus-visible:ring-2 focus-visible:ring-red-400 outline-none"
+              >
+                Retry
+              </button>
             </div>
           )}
           <div ref={messagesEndRef} />
@@ -484,14 +575,25 @@ export default function ChatPage() {
                 rows={1}
                 style={{ minHeight: '56px', maxHeight: '200px' }}
               />
-              <button 
-                type="submit" 
-                disabled={isStreaming || !input.trim()}
-                className="mb-3 mr-3 p-2.5 bg-zinc-100 rounded-xl text-zinc-900 hover:bg-white disabled:opacity-30 disabled:hover:bg-zinc-100 transition-all flex-shrink-0 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 outline-none cursor-pointer"
-                aria-label="Send message"
-              >
-                <SendHorizontal size={18} />
-              </button>
+              {isStreaming ? (
+                <button
+                  type="button"
+                  onClick={handleStop}
+                  className="mb-3 mr-3 p-2.5 bg-zinc-100 rounded-xl text-zinc-900 hover:bg-white transition-all flex-shrink-0 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 outline-none cursor-pointer"
+                  aria-label="Stop generating"
+                >
+                  <Square size={18} fill="currentColor" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!input.trim()}
+                  className="mb-3 mr-3 p-2.5 bg-zinc-100 rounded-xl text-zinc-900 hover:bg-white disabled:opacity-30 disabled:hover:bg-zinc-100 transition-all flex-shrink-0 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 outline-none cursor-pointer"
+                  aria-label="Send message"
+                >
+                  <SendHorizontal size={18} />
+                </button>
+              )}
             </div>
           </form>
           <div className="text-center mt-3 text-[11px] text-zinc-600 font-medium tracking-wide">
