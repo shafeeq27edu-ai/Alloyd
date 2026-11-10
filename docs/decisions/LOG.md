@@ -132,3 +132,61 @@
 **Why:** It exercises the real cookie-domain and CORS paths rather than a same-origin proxy, and it is reproducible on any machine.
 
 **Revisit if:** a local TLS setup is needed; then `lvh.me` still works with a self-signed certificate and `COOKIE_SECURE=true`.
+
+## 2026-11-10 — Chat writes commit only after routing succeeds
+
+**Context:** Previously the conversation and user message were written before routing and provider-key resolution. A request that ended in "no API key" or "model unavailable" left behind an empty conversation and an unanswered user message.
+
+**Options:**
+- (a) Keep writing first and delete on failure.
+- (b) Resolve conversation, routing mode, provider, model, and key first; write the conversation row, the (optional) user message, and the mode switch in one commit immediately before streaming.
+
+**Decision:** (b). Nothing is written before every fallible validation passes. Regenerate writes no user message at all; it reuses the last stored one.
+
+**Why:** Compensation deletes can fail and add partial-write windows. A single commit after validation makes "no partial conversations" a structural property rather than cleanup logic. The tests assert the conversations table stays empty for missing keys, invalid manual routes, and invalid mode switches.
+
+**Revisit if:** a request needs to survive validation but persist before an asynchronous queue consumes it.
+
+## 2026-11-10 — Regenerate reuses the last user turn and replaces answers on success only
+
+**Context:** Regenerating an answer must not duplicate the user message, and a failed regeneration must not destroy the existing answer.
+
+**Options:**
+- (a) Delete the old assistant messages up front, then stream.
+- (b) Stream first, and on a successful `done` delete the answers that followed the last user message and insert the new one in the same commit.
+
+**Decision:** (b). The history sent to the provider is the stored messages up to and including the last user message, so old answers never influence the new one.
+
+**Why:** Up-front deletion makes a provider outage or an aborted stream lose the previous answer. Doing both writes in one commit keeps the conversation readable at every point. Verified live: a failed regenerate left the original user/assistant pair untouched.
+
+**Revisit if:** the UI later allows editing the user message itself; that becomes a different operation with its own history semantics.
+
+## 2026-11-10 — History is trimmed by a character budget with a visible notice
+
+**Context:** Long conversations can exceed a model's context window, and the failure is a provider 400 that users cannot act on.
+
+**Options:**
+- (a) Token-count history per model with a tokenizer library.
+- (b) Trim by characters using a conservative characters-per-token assumption.
+- (c) Let providers reject oversized requests.
+
+**Decision:** (b). `HISTORY_MAX_CHARS` defaults to 24,000 characters (roughly 6,000 tokens); the system prompt is always kept, the most recent messages are kept, and the response's routing metadata carries "N older messages omitted…" so the UI shows a notice.
+
+**Why:** A tokenizer per provider adds dependencies and drifts with model updates; a character budget with a wide safety margin is predictable and works across every catalog model. The notice keeps the truncation honest instead of silently losing context.
+
+**Revisit if:** models with small context windows join the catalog, or token-accurate budgeting becomes necessary for cost control.
+
+## 2026-11-10 — Account deletion uses ordered bulk deletes, not ORM cascades
+
+**Context:** Deleting an account must remove provider keys, conversations, and messages. The models do not declare database-level cascades.
+
+**Options:**
+- (a) Add `ondelete="CASCADE"` to the foreign keys and let the database handle it.
+- (b) Issue explicit deletes in dependency order (messages → conversations → keys → user) inside one transaction, after re-checking the password.
+
+**Decision:** (b). A wrong password returns 400 and deletes nothing. On success the auth cookies are cleared in the response.
+
+**Why:** Changing foreign keys needs another migration and a destructive-schema review; explicit deletes make the wipe auditable in one place and keep the same behavior on SQLite tests and Postgres. Password re-authentication prevents a stolen session from destroying the account and its keys.
+
+**Revisit if:** more user-owned tables are added; the delete list must grow with them, and a test should assert every new table is covered.
+

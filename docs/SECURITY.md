@@ -68,6 +68,8 @@ Status: Phase 3 complete (2026-11-09). This documents what is protected, how, an
 - There is no audit trail for provider-key access.
 - Key validation necessarily sends the supplied key to the provider.
 - `gitleaks` is not installed; Phase 6 adds it to CI. Current scans are pattern-based and print paths only.
+- Account deletion requires the account password and destroys API keys with the account; there is no soft-delete window.
+- Copy-to-clipboard uses the Clipboard API, which browsers expose only in a secure context. Over plain-HTTP sibling hosts the UI reports a failure toast; production runs on HTTPS.
 
 ## Verification
 
@@ -114,6 +116,19 @@ Known limitations not covered by the record above remain as listed.
 - Provider smoke inside the container: NOT RUN (no provider keys are provided to the compose stack, and keys are never baked into images).
 
 Known limitations not covered by the record above remain as listed.
+
+### Phase 5 verification record (2026-11-10)
+
+- Backend suite: 128 passed, including tests for write-after-validation, regenerate semantics, history trimming, indexes/backfill migrations, and account deletion.
+- Frontend: `npm run lint` clean; `npm test` 8/8; production `npm run build` succeeded.
+- Migrations on a scratch Postgres database (created inside the Phase 4 compose Postgres, never a real database): upgraded to `677b3b6bbe6a`, seeded a `mode = NULL` conversation, upgraded to head. The row became `mode = 'auto'`, `ix_conversations_user_id` and `ix_messages_conversation_id` existed afterwards, `downgrade -1` dropped the indexes, and re-upgrading recreated them. The scratch database was dropped afterwards.
+- Write-after-validation, live: a fresh account with no keys sent a message, received `400 {"detail":"No API key configured for provider gemini"}`, and `GET /api/conversations/` still returned an empty list.
+- Regenerate, live: a stored user/assistant pair was regenerated with a placeholder key. The stream emitted a safe `INVALID_API_KEY` error; the messages table still held exactly the original pair, so nothing was persisted and the previous answer was not deleted.
+- History trimming, live: a conversation with six 5,000-character user/assistant pairs (about 60,000 characters) produced the routing metadata notice `7 older messages omitted to fit the model's context window.` and the stored messages were unchanged after the failed provider call.
+- Account deletion, live: in Settings, a wrong password returned `400 Incorrect password` and kept the account; the correct password asked for confirmation once, returned 200, redirected to `/login`, removed the user row, provider key, conversation, and messages, and `/api/auth/me` returned 401 afterwards.
+- Delete-conversation confirmation: the sidebar delete asked for confirmation once and removed the conversation and its messages.
+- Stop generation: NOT RUN end-to-end. It requires an in-flight provider stream and no provider keys are available to this stack; the abort path is covered by code review of the `AbortController` handling and by the runner/persistence tests. Copy: NOT RUN in the browser because the Clipboard API is unavailable on plain-HTTP origins; the failure path shows a toast and the HTTPS behavior is unverified.
+- Structured logs during the above runs contained no keys, `Bearer` values, API-key fields, or DSNs.
 
 ## Production checklist
 

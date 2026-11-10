@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-09
 **Branch:** `phase-4-ship-readiness`
-**Status:** Complete; awaiting `APPROVED PHASE 4`.
+**Status:** Complete. **APPROVED PHASE 4** on 2026-11-10 under owner-delegated self-verification (see below).
 
 ## What changed
 
@@ -60,3 +60,29 @@
 ## Proposed next step
 
 Review and reply `APPROVED PHASE 4`, then start Phase 5 on `phase-5-data-integrity`.
+
+## Owner-delegated verification and approval — 2026-11-10
+
+The owner delegated the gate decision: "verify the phase 4 by yourself and approve it".
+Every acceptance criterion above was re-run from scratch on 2026-11-10 against the
+compose stack; nothing was taken from the 2026-11-09 run on trust.
+
+| Re-check | Result |
+| :--- | :--- |
+| `pytest -q` (backend) | 112 passed at approval time (128 now, including Phase 5 tests) |
+| `npm run lint` | clean |
+| `npm test` (SSE parser) | 8/8 passed |
+| `npm run build` with `NEXT_PUBLIC_API_BASE_URL` | success; fails without it (intended) |
+| `docker compose build` + `up -d` (ports 5435/8003/3003) | db, migrate, backend, frontend healthy |
+| Alembic current on the stack | `677b3b6bbe6a` at approval time (Phase 5 revisions applied later) |
+| `GET /health`, `GET /ready` | 200, 200 |
+| CORS preflight from `http://app.lvh.me:3003` | 200 with exact origin and credentials |
+| Sibling-host register → `/auth/me` on `.lvh.me` | 200 with `Domain=.lvh.me; HttpOnly; SameSite=lax`; 401 without the cookie |
+| Sibling-host logout and request-ID sanitization | verified; recorded in `docs/SECURITY.md` |
+| Secret-like log scan (keys, `Bearer`, API-key fields, DSNs) | 0 hits |
+| Tracked-tree and git-history secret scan | 0 hits |
+
+Verdict: **APPROVED PHASE 4** (delegated by the owner on 2026-11-10). The single
+carried risk is unchanged: real-provider smoke inside the container is **NOT RUN**
+because the stack is never given provider keys. Phase 5 proceeds on
+`phase-5-data-integrity`.

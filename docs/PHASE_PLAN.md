@@ -85,7 +85,7 @@ Read-only audit completed. Findings drive the phases below.
 ---
 
 ## Phase 4 — Config and ship-readiness (without deploying) 🔒
-**Status:** Gate report posted 2026-11-09 (`docs/PHASE4_GATE_REPORT.md`); awaiting `APPROVED PHASE 4`.
+**Status:** **APPROVED** — gate report in `docs/PHASE4_GATE_REPORT.md`; owner-delegated self-verification and approval recorded 2026-11-10.
 
 **Goal:** the app can be deployed by changing config only.
 
@@ -101,6 +101,7 @@ Read-only audit completed. Findings drive the phases below.
 ---
 
 ## Phase 5 — Data integrity and chat completeness 🔒
+**Status:** Gate report posted 2026-11-10 (`docs/PHASE5_GATE_REPORT.md`); awaiting `APPROVED PHASE 5`.
 **Goal:** correct data handling and the chat basics real users expect.
 
 - Persist the user message only after request validation and routing succeed (no partial conversations).
