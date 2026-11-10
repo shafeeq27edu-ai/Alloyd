@@ -2,10 +2,11 @@ import json
 import logging
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from pydantic import BaseModel, Field
-from typing import List, Optional
+from pydantic import BaseModel, Field, model_validator
+from typing import Optional
 from app.db.database import get_db
 from app.db.models import ProviderKey, User, Conversation, Message
 from app.core.encryption import decrypt_key
@@ -16,6 +17,7 @@ from app.core.classifier import TaskClassifier
 from app.core.title_generator import generate_and_update_title
 from app.core.rate_limit import check_rate_limit
 from app.core.errors import ProviderError, ErrorCode
+from app.core.history import trim_history
 from app.config import settings
 import asyncio
 
@@ -78,8 +80,15 @@ class ChatRequest(BaseModel):
     mode: str = Field(default="auto", max_length=16) # "auto" or "manual"
     provider: Optional[str] = Field(default=None, max_length=32)
     model: Optional[str] = Field(default=None, max_length=64)
-    message: str = Field(min_length=1, max_length=20000)
+    message: str = Field(default="", max_length=20000)
     conversation_id: Optional[str] = Field(default=None, max_length=64)
+    regenerate: bool = False
+
+    @model_validator(mode="after")
+    def require_message_unless_regenerating(self):
+        if not self.regenerate and not self.message.strip():
+            raise ValueError("Message cannot be empty.")
+        return self
 
 @router.post("/", dependencies=[Depends(verify_csrf)])
 async def stream_chat(
@@ -94,8 +103,9 @@ async def stream_chat(
         settings.CHAT_RATE_WINDOW
     )
 
-    # Setup conversation
+    # Resolve the conversation and routing mode without writing anything yet.
     legacy_notice = None
+    conversation: Conversation | None = None
     if req.conversation_id:
         conv_result = await db.execute(
             select(Conversation).where(
@@ -120,46 +130,44 @@ async def stream_chat(
                 req_mode, req_provider, req_model = "auto", None, None
         else:
             req_mode, req_provider, req_model = "auto", None, None
-
-        if (conversation.mode, conversation.provider, conversation.model) != (
-            req_mode, req_provider, req_model
-        ):
-            conversation.mode = req_mode
-            conversation.provider = req_provider
-            conversation.model = req_model
-            await db.commit()
     else:
-        conversation = Conversation(
-            user_id=current_user.id, 
-            title=req.message[:50],
-            mode=req.mode,
-            provider=req.provider if req.mode == "manual" else None,
-            model=req.model if req.mode == "manual" else None
+        if req.regenerate:
+            raise HTTPException(status_code=400, detail="Regenerate requires an existing conversation.")
+        req_mode, req_provider, req_model = req.mode, req.provider, req.model
+
+    # Regenerate reuses the last stored user message and replaces the answers
+    # that followed it, so no duplicate user message is written.
+    replacement_ids: list[str] = []
+    history_snapshot: list[dict] | None = None
+    if req.regenerate:
+        history_result = await db.execute(
+            select(Message)
+            .where(Message.conversation_id == conversation.id)
+            .order_by(Message.created_at)
         )
-        db.add(conversation)
-        await db.commit()
-        await db.refresh(conversation)
-        
-        # Trigger title generation in the background
-        asyncio.create_task(generate_and_update_title(conversation.id, req.message, current_user.id))
-        
-        req_mode = req.mode
-        req_provider = req.provider
-        req_model = req.model
+        stored_messages = history_result.scalars().all()
+        last_user_index = next(
+            (i for i in range(len(stored_messages) - 1, -1, -1) if stored_messages[i].role == "user"),
+            None,
+        )
+        if last_user_index is None:
+            raise HTTPException(status_code=400, detail="There is no user message to regenerate.")
+        message_text = stored_messages[last_user_index].content
+        history_snapshot = [
+            {"role": m.role, "content": m.content} for m in stored_messages[:last_user_index + 1]
+        ]
+        replacement_ids = [m.id for m in stored_messages[last_user_index + 1:]]
+    else:
+        message_text = req.message
 
-    # Save user message
-    user_msg = Message(conversation_id=conversation.id, role="user", content=req.message)
-    db.add(user_msg)
-    await db.commit()
-
-    # Routing Logic
+    # Routing and key access must succeed before the conversation is touched.
     category = None
     provider_availability = {}
     if req_mode == "auto":
         keys_result = await db.execute(select(ProviderKey).where(ProviderKey.user_id == current_user.id))
         available_keys = {pk.provider_name: pk.encrypted_key for pk in keys_result.scalars().all()}
 
-        category = TaskClassifier.classify(req.message)
+        category = TaskClassifier.classify(message_text)
 
         provider_availability = {name: True for name in available_keys.keys()}
         target_provider, target_model = RuleRouter.route(category, provider_availability)
@@ -171,7 +179,6 @@ async def stream_chat(
         target_provider = req_provider
         target_model = req_model
 
-    # Fetch provider key
     result = await db.execute(
         select(ProviderKey).where(
             ProviderKey.user_id == current_user.id,
@@ -181,32 +188,66 @@ async def stream_chat(
     provider_key_record = result.scalars().first()
     if not provider_key_record:
         raise HTTPException(status_code=400, detail=f"No API key configured for provider {target_provider}")
-    
+
     plain_key = decrypt_key_safely(provider_key_record.encrypted_key, target_provider)
-
-    from app.core.skills import SKILLS
-    # Fetch history for context
-    msg_result = await db.execute(
-        select(Message).where(Message.conversation_id == conversation.id).order_by(Message.created_at)
-    )
-    messages_history = msg_result.scalars().all()
-    api_messages = [{"role": m.role, "content": m.content} for m in messages_history]
-
-    # Inject skill system prompt if applicable
-    for skill_name, skill in SKILLS.items():
-        if f"@{skill_name}" in req.message:
-            api_messages.insert(0, {"role": "system", "content": skill.system_prompt})
-            break
 
     try:
         adapter = ProviderRegistry.get_adapter(target_provider)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Provider {target_provider} is not supported.")
-        
+
+    # Persist the conversation (and the new user message) only now.
+    is_new_conversation = conversation is None
+    if is_new_conversation:
+        conversation = Conversation(
+            user_id=current_user.id,
+            title=message_text[:50],
+            mode=req_mode,
+            provider=req_provider if req_mode == "manual" else None,
+            model=req_model if req_mode == "manual" else None
+        )
+        db.add(conversation)
+        await db.flush()
+    elif (conversation.mode, conversation.provider, conversation.model) != (
+        req_mode, req_provider, req_model
+    ):
+        conversation.mode = req_mode
+        conversation.provider = req_provider
+        conversation.model = req_model
+
+    if not req.regenerate:
+        db.add(Message(conversation_id=conversation.id, role="user", content=message_text))
+    await db.commit()
+
+    if is_new_conversation:
+        asyncio.create_task(generate_and_update_title(conversation.id, message_text, current_user.id))
+
+    from app.core.skills import SKILLS
+    if history_snapshot is None:
+        msg_result = await db.execute(
+            select(Message).where(Message.conversation_id == conversation.id).order_by(Message.created_at)
+        )
+        history_snapshot = [{"role": m.role, "content": m.content} for m in msg_result.scalars().all()]
+    api_messages = history_snapshot
+
+    for skill_name, skill in SKILLS.items():
+        if f"@{skill_name}" in message_text:
+            api_messages.insert(0, {"role": "system", "content": skill.system_prompt})
+            break
+
+    api_messages, dropped_messages = trim_history(api_messages, settings.HISTORY_MAX_CHARS)
+    notices = []
+    if legacy_notice:
+        notices.append(legacy_notice)
+    if dropped_messages:
+        noun = "message" if dropped_messages == 1 else "messages"
+        notices.append(f"{dropped_messages} older {noun} omitted to fit the model's context window.")
+    notice_text = " ".join(notices) if notices else None
+
     async def generate():
         nonlocal target_provider, target_model, adapter, plain_key
         fallback_attempted = False
-        
+
         while True:
             routing_meta = {
                 "provider": target_provider,
@@ -215,14 +256,14 @@ async def stream_chat(
                 "conversation_id": conversation.id,
                 "category": getattr(category, "value", str(category)) if req_mode == "auto" else "MANUAL"
             }
-            if legacy_notice:
-                routing_meta["notice"] = legacy_notice
+            if notice_text:
+                routing_meta["notice"] = notice_text
             yield f"event: routing\ndata: {json.dumps(routing_meta)}\n\n"
 
             full_response = ""
             first_chunk_received = False
             error_event_data = None
-            
+
             try:
                 async for event, data in _stream_with_first_chunk_timeout(
                     adapter, plain_key, target_model, api_messages, target_provider
@@ -232,6 +273,8 @@ async def stream_chat(
                         full_response += data
                         yield f"event: message\ndata: {json.dumps({'content': data})}\n\n"
                     elif event == "done":
+                        if replacement_ids:
+                            await db.execute(delete(Message).where(Message.id.in_(replacement_ids)))
                         assistant_msg = Message(conversation_id=conversation.id, role="assistant", content=full_response)
                         db.add(assistant_msg)
                         await db.commit()
@@ -269,7 +312,7 @@ async def stream_chat(
                 # Try fallback provider
                 provider_availability[target_provider] = False
                 fallback_provider, fallback_model = RuleRouter.route(category, provider_availability)
-                
+
                 if fallback_provider == target_provider:
                     # No fallback available
                     yield f"event: error\ndata: {error_event_data}\n\n"
@@ -291,7 +334,7 @@ async def stream_chat(
                 if not fallback_key_record:
                     yield f"event: error\ndata: {error_event_data}\n\n"
                     break
-                    
+
                 target_provider = fallback_provider
                 target_model = fallback_model
                 try:
@@ -313,9 +356,9 @@ async def stream_chat(
                     yield f"event: error\ndata: {error_event_data}\n\n"
                     break
                 continue
-            
+
             break
-            
+
     return StreamingResponse(
         generate(),
         media_type="text/event-stream",

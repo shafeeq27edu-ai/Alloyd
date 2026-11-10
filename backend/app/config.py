@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     # Comma-separated IPs/CIDRs whose X-Forwarded-For header is trusted.
     TRUSTED_PROXIES: str = ""
     MAX_REQUEST_BYTES: int = 1_000_000
+    # Approximate character budget for conversation history sent to a provider.
+    # Roughly four characters per token, so the default stays well inside every
+    # catalog model's context window.
+    HISTORY_MAX_CHARS: int = 24_000
 
     # Cookie scoping. COOKIE_DOMAIN is required for sibling subdomains
     # (e.g. ".alloyd.com" so app.alloyd.com and api.alloyd.com share the

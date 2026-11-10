@@ -1,7 +1,7 @@
 import pytest
 import json
 from httpx import AsyncClient
-from app.db.models import ProviderKey, Conversation
+from app.db.models import ProviderKey, Conversation, Message
 from app.core.encryption import encrypt_key
 from app.api.chat import _resolve_legacy_route
 from app.config import settings
@@ -365,3 +365,154 @@ async def test_request_body_limit(async_client, monkeypatch):
         json={"email": "large@example.com", "password": "x" * 100}
     )
     assert response.status_code == 413
+
+
+async def _stored_rows(db_session):
+    conversations = (await db_session.execute(select(Conversation))).scalars().all()
+    messages = (await db_session.execute(select(Message).order_by(Message.created_at))).scalars().all()
+    return conversations, messages
+
+
+@pytest.mark.asyncio
+async def test_failed_manual_route_persists_nothing(auth_client, db_session, test_user):
+    response = await auth_client.post(
+        "/api/chat/",
+        json={"mode": "manual", "provider": "mock", "model": "does-not-exist", "message": "hello"},
+    )
+    assert response.status_code == 400
+
+    conversations, messages = await _stored_rows(db_session)
+    assert conversations == []
+    assert messages == []
+
+
+@pytest.mark.asyncio
+async def test_missing_provider_key_persists_nothing(auth_client, db_session, test_user):
+    response = await auth_client.post(
+        "/api/chat/",
+        json={"mode": "manual", "provider": "mock", "model": "mock-model", "message": "hello"},
+    )
+    assert response.status_code == 400
+
+    conversations, messages = await _stored_rows(db_session)
+    assert conversations == []
+    assert messages == []
+
+
+@pytest.mark.asyncio
+async def test_failed_manual_switch_leaves_conversation_and_history_unchanged(
+    auth_client, db_session, test_user
+):
+    await _add_key(db_session, test_user.id, "mock", "validkey")
+    conversation = Conversation(user_id=test_user.id, title="stable", mode="auto")
+    db_session.add(conversation)
+    await db_session.commit()
+    await db_session.refresh(conversation)
+
+    response = await auth_client.post(
+        "/api/chat/",
+        json={
+            "mode": "manual", "provider": "mock", "model": "does-not-exist",
+            "message": "hello", "conversation_id": conversation.id,
+        },
+    )
+    assert response.status_code == 400
+
+    await db_session.refresh(conversation)
+    assert conversation.mode == "auto"
+    assert conversation.provider is None
+    assert conversation.model is None
+    _conversations, messages = await _stored_rows(db_session)
+    assert messages == []
+
+
+@pytest.mark.asyncio
+async def test_successful_send_stores_exactly_one_user_message(auth_client, db_session, test_user):
+    await _add_key(db_session, test_user.id, "mock", "validkey")
+
+    response = await auth_client.post(
+        "/api/chat/", json={"mode": "auto", "message": "hello world"}
+    )
+    assert response.status_code == 200
+
+    _conversations, messages = await _stored_rows(db_session)
+    assert [(m.role, m.content) for m in messages] == [
+        ("user", "hello world"),
+        ("assistant", "mock response"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_regenerate_reuses_last_user_message_and_replaces_the_answer(
+    auth_client, db_session, test_user
+):
+    await _add_key(db_session, test_user.id, "mock", "validkey")
+    conversation = Conversation(user_id=test_user.id, title="regen", mode="auto")
+    db_session.add(conversation)
+    await db_session.commit()
+    await db_session.refresh(conversation)
+    db_session.add_all([
+        Message(conversation_id=conversation.id, role="user", content="first question"),
+        Message(conversation_id=conversation.id, role="assistant", content="old answer"),
+    ])
+    await db_session.commit()
+
+    response = await auth_client.post(
+        "/api/chat/",
+        json={"mode": "auto", "conversation_id": conversation.id, "regenerate": True},
+    )
+    assert response.status_code == 200
+    assert "mock response" in response.text
+
+    _conversations, messages = await _stored_rows(db_session)
+    assert [(m.role, m.content) for m in messages] == [
+        ("user", "first question"),
+        ("assistant", "mock response"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_regenerate_requires_a_user_message(auth_client, db_session, test_user):
+    await _add_key(db_session, test_user.id, "mock", "validkey")
+    conversation = Conversation(user_id=test_user.id, title="empty", mode="auto")
+    db_session.add(conversation)
+    await db_session.commit()
+    await db_session.refresh(conversation)
+
+    response = await auth_client.post(
+        "/api/chat/",
+        json={"mode": "auto", "conversation_id": conversation.id, "regenerate": True},
+    )
+    assert response.status_code == 400
+    _conversations, messages = await _stored_rows(db_session)
+    assert messages == []
+
+
+@pytest.mark.asyncio
+async def test_regenerate_requires_a_conversation(auth_client):
+    response = await auth_client.post(
+        "/api/chat/", json={"mode": "auto", "message": "hello", "regenerate": True}
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_trimmed_history_is_announced(auth_client, db_session, test_user, monkeypatch):
+    monkeypatch.setattr(settings, "HISTORY_MAX_CHARS", 20)
+    await _add_key(db_session, test_user.id, "mock", "validkey")
+    conversation = Conversation(user_id=test_user.id, title="long", mode="auto")
+    db_session.add(conversation)
+    await db_session.commit()
+    await db_session.refresh(conversation)
+    db_session.add_all([
+        Message(conversation_id=conversation.id, role="user", content="o" * 40),
+        Message(conversation_id=conversation.id, role="assistant", content="a" * 40),
+    ])
+    await db_session.commit()
+
+    response = await auth_client.post(
+        "/api/chat/",
+        json={"mode": "auto", "message": "latest", "conversation_id": conversation.id},
+    )
+    assert response.status_code == 200
+    assert "omitted to fit the model's context window" in response.text

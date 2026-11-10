@@ -22,6 +22,7 @@ Backend (`backend/app/config.py`):
 | `COOKIE_SECURE` | Force the Secure cookie flag; defaults to `not DEBUG` | derived |
 | `TRUSTED_PROXIES` | IPs/CIDRs allowed to set `X-Forwarded-For` | empty |
 | `MAX_REQUEST_BYTES` | Request body cap | `1000000` |
+| `HISTORY_MAX_CHARS` | Character budget for conversation history sent to providers | `24000` |
 | `LOG_LEVEL`, `LOG_FORMAT` | Structured logging (`json` or `text`) | `INFO`, `json` |
 | `DB_DISABLE_PREPARED_STATEMENTS` | Disable asyncpg's statement cache for PgBouncer | `false` |
 | `DB_CONNECT_TIMEOUT_SECONDS` | Readiness/startup probe timeout | `5` |
