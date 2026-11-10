@@ -101,7 +101,7 @@ Read-only audit completed. Findings drive the phases below.
 ---
 
 ## Phase 5 — Data integrity and chat completeness 🔒
-**Status:** Gate report posted 2026-11-10 (`docs/PHASE5_GATE_REPORT.md`); awaiting `APPROVED PHASE 5`.
+**Status:** **APPROVED** — gate report in `docs/PHASE5_GATE_REPORT.md`; owner instructed the work to continue on 2026-11-10.
 **Goal:** correct data handling and the chat basics real users expect.
 
 - Persist the user message only after request validation and routing succeed (no partial conversations).
