@@ -2,17 +2,22 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.pool import NullPool
 import asyncio
 import os
 from cryptography.fernet import Fernet
 
-os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+# CI sets TEST_DATABASE_URL so the suite runs on Postgres; local runs default to
+# an in-memory SQLite database for speed.
+DATABASE_URL = os.environ.get("TEST_DATABASE_URL") or "sqlite+aiosqlite:///:memory:"
+os.environ["DATABASE_URL"] = DATABASE_URL
 os.environ["SECRET_KEY"] = "this_is_a_mock_secret_key_for_tests_that_is_long_enough"
 os.environ["ENCRYPTION_KEY"] = Fernet.generate_key().decode()
 # Tests run over plain HTTP; turn off Secure cookies for the test client only.
 os.environ["DEBUG"] = "true"
 
 from app.main import app
+from app.db import database
 from app.db.database import get_db, Base
 from app.core.security import get_password_hash
 from app.db.models import User
@@ -29,8 +34,31 @@ def reset_rate_limiter():
     yield
 
 
-engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+# pytest-asyncio gives every test its own event loop, so pooled Postgres
+# connections would be reused after their loop closes. NullPool keeps each
+# connection scoped to the test that opened it. In-memory SQLite needs the
+# default single-connection pool to keep the same database across the run.
+_engine_options = (
+    {"poolclass": NullPool} if DATABASE_URL.startswith("postgresql") else {}
+)
+engine = create_async_engine(DATABASE_URL, echo=False, **_engine_options)
 TestingSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def use_test_session_factory():
+    # Background work (e.g. title generation) opens its own session instead of
+    # using the injected request session. Point it at the test engine so it
+    # never creates pooled connections on the app engine that outlive the
+    # per-test event loop.
+    from app.core import title_generator
+
+    original = database.AsyncSessionLocal
+    database.AsyncSessionLocal = TestingSessionLocal
+    title_generator.AsyncSessionLocal = TestingSessionLocal
+    yield
+    database.AsyncSessionLocal = original
+    title_generator.AsyncSessionLocal = original
 
 @pytest_asyncio.fixture(scope="session")
 def event_loop():
