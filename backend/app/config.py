@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     PROVIDER_TIMEOUT_SECONDS: float = 60.0
     PROVIDER_FIRST_CHUNK_TIMEOUT_SECONDS: float = 20.0
 
+    # Registers a deterministic provider that performs no network calls. It
+    # exists only for end-to-end tests and must stay off in production.
+    ENABLE_MOCK_PROVIDER: bool = False
+
     @model_validator(mode="after")
     def assemble_database_url(self):
         if self.DATABASE_URL:
