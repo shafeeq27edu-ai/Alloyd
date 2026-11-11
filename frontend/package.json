@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test src/lib/sse.test.mjs"
+    "test": "node --experimental-strip-types --test src/lib/sse.test.mjs src/lib/api.test.mjs",
+    "test:e2e": "playwright test"
   },
   "engines": {
     "node": ">=22.11.0"
@@ -22,6 +23,7 @@
     "remark-gfm": "4.0.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.65.0",
     "@tailwindcss/postcss": "4.3.3",
     "@tailwindcss/typography": "0.5.20",
     "@types/node": "20.19.43",
