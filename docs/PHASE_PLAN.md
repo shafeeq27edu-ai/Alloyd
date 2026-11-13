@@ -142,10 +142,10 @@ Read-only audit completed. Findings drive the phases below.
 | Local regression proof | PASS | Composer-bound assertion failed on the old layout, then passed after wrapping controls; this is not the required remote CI failure/revert demonstration. |
 | `pip-audit -r requirements.txt` | PASS | No known runtime dependency vulnerabilities. |
 | `npm audit --audit-level=high` | PASS WITH FINDINGS | Exit 0 at the configured high-severity threshold; nine moderate development dependency findings remain. No dependency auto-fix or downgrade performed. |
-| Native Safari | NOT RUN | Windows WebKit emulation is not Safari on macOS/iOS. No waiver is implied. |
+| Native Safari | NOT RUN — OWNER WAIVER | Owner explicitly waived native Safari on 2026-11-13. WebKit emulation passed, but macOS/iOS cookie and SSE compatibility remains unverified; that risk is carried. |
 | Remote CI at `a33d8f0` | PARTIAL / UNVERIFIED | Earlier observations showed backend, frontend and secret-scan jobs succeeded; final E2E conclusion/logs could not be retrieved. GitHub CLI is installed but unauthenticated. |
-| Full-history local gitleaks scan | UNRESOLVED | One finding was reported. Its inspection was declined, so it was not classified as a false positive or waived. |
-| Remote CI failing-test/revert demonstration | NOT RUN | Still required before approval; intentionally broken changes were not pushed to main. |
+| Full-history local gitleaks scan | TRIAGED — FALSE POSITIVE | Renewed redacted inspection was authorized on 2026-11-13. The only `generic-api-key` finding is `backend/scripts/smoke_providers.py:3–4` at `51840b6dac8ae17fdf365f56414c19960a8b406e`: a module-docstring run instruction assigning ellipsis placeholders to provider-key variables, not credentials. Raw scan still exits 1; no suppression or history rewrite was added. |
+| Remote CI failing-test/revert demonstration | IN PROGRESS / UNVERIFIED | Owner authorized the isolated `ci/failure-demo` branch. `f20f9e3` changes one SSE expected value; local tests report exactly 16 passing and 1 failing, with lint passing. The commit was pushed only to that branch. GitHub CLI remains unauthenticated, so remote failure has not been confirmed and no reverting commit has been pushed yet. Main remains at `bbb7ed1`, with 17 tests passing after returning to it. |
 
 Security review disabled authenticated Playwright traces, which can capture
 HttpOnly cookies; temporary auth state is excluded from git, Docker builds,
@@ -155,9 +155,11 @@ the backend security and ownership tests passed with the suite.
 
 **Approval:** NOT APPROVED. The locally verified security and mobile corrections
 were pushed to main in `82f1cb4`; their remote CI result remains unverified.
-GitHub CLI authentication was rechecked and is still unavailable. The remote
-failure/revert demonstration, the untriaged scan finding, and native Safari
-verification remain open.
+GitHub CLI authentication was rechecked and is still unavailable. Remote CI
+results and the failure/revert demonstration remain open. The scan finding
+was verified as a placeholder false positive without displaying secret values
+or weakening scanner rules. Native Safari is owner-waived and remains NOT RUN;
+its compatibility risk is carried, not marked as passed.
 
 ---
 
