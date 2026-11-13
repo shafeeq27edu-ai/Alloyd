@@ -116,6 +116,8 @@ Read-only audit completed. Findings drive the phases below.
 ---
 
 ## Phase 6 — Quality gates
+**Status:** IN PROGRESS — local checks verified on 2026-11-13; final remote CI and the CI failure/revert demonstration remain unverified.
+
 **Goal:** automated protection against regressions.
 
 - GitHub Actions CI: backend tests, frontend lint, production build, secret scan (gitleaks), `pip-audit`, `npm audit` on every push/PR.
@@ -125,6 +127,37 @@ Read-only audit completed. Findings drive the phases below.
 - Manual pass on mobile viewport and Safari (cookies + SSE); record findings.
 
 **Acceptance:** CI green on a clean branch; failing-test demonstration (break something on purpose, CI catches it, revert).
+
+### Verification record — 2026-11-13
+
+| Check | Result | Evidence / limitation |
+| :--- | :--- | :--- |
+| Backend suite with `TEST_DATABASE_URL` targeting disposable Postgres | PASS | 128 passed; one existing Pydantic deprecation warning. The rotation test still creates its own SQLite database. |
+| Frontend unit tests | PASS | 17 SSE/parser and API-client tests. |
+| Frontend lint and TypeScript | PASS | `npm run lint` and `npx tsc --noEmit`. |
+| Production build | PASS | Local Next build and rebuilt Compose frontend image. |
+| Playwright smoke | PASS | Chromium, WebKit, and mobile Chromium; real mock-provider API calls with cookies and CSRF. |
+| Repeated setup | PASS | Fresh registration followed by three repeat Chromium runs, then all three projects. API URL override without trailing slash also verified. |
+| Mobile layout and interactions | PASS | At 375px and 320px, controls fit the composer; sidebar/Escape verified. Streamed reply and cancel/confirm deletion checked at 375px. |
+| Local regression proof | PASS | Composer-bound assertion failed on the old layout, then passed after wrapping controls; this is not the required remote CI failure/revert demonstration. |
+| `pip-audit -r requirements.txt` | PASS | No known runtime dependency vulnerabilities. |
+| `npm audit --audit-level=high` | PASS WITH FINDINGS | Exit 0 at the configured high-severity threshold; nine moderate development dependency findings remain. No dependency auto-fix or downgrade performed. |
+| Native Safari | NOT RUN | Windows WebKit emulation is not Safari on macOS/iOS. No waiver is implied. |
+| Remote CI at `a33d8f0` | PARTIAL / UNVERIFIED | Earlier observations showed backend, frontend and secret-scan jobs succeeded; final E2E conclusion/logs could not be retrieved. GitHub CLI is installed but unauthenticated. |
+| Full-history local gitleaks scan | UNRESOLVED | One finding was reported. Its inspection was declined, so it was not classified as a false positive or waived. |
+| Remote CI failing-test/revert demonstration | NOT RUN | Still required before approval; intentionally broken changes were not pushed to main. |
+
+Security review disabled authenticated Playwright traces, which can capture
+HttpOnly cookies; temporary auth state is excluded from git, Docker builds,
+and artifact upload paths. Setup errors no longer print raw auth responses.
+Application BYOK, ownership checks, cookies, CSRF and CORS were not weakened;
+the backend security and ownership tests passed with the suite.
+
+**Approval:** NOT APPROVED. The locally verified security and mobile corrections
+were pushed to main in `82f1cb4`; their remote CI result remains unverified.
+GitHub CLI authentication was rechecked and is still unavailable. The remote
+failure/revert demonstration, the untriaged scan finding, and native Safari
+verification remain open.
 
 ---
 

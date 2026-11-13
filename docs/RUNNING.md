@@ -27,6 +27,7 @@ Backend (`backend/app/config.py`):
 | `DB_DISABLE_PREPARED_STATEMENTS` | Disable asyncpg's statement cache for PgBouncer | `false` |
 | `DB_CONNECT_TIMEOUT_SECONDS` | Readiness/startup probe timeout | `5` |
 | `STARTUP_DB_CHECK_RETRIES`, `STARTUP_DB_CHECK_DELAY_SECONDS` | Startup database retry policy | `10`, `2` |
+| `ENABLE_MOCK_PROVIDER` | Registers the deterministic no-network provider used by E2E tests; never enable in production | `false` |
 
 Frontend:
 
@@ -133,8 +134,48 @@ cd backend
 .venv/Scripts/python.exe -m pytest    # Windows
 .venv/bin/python -m pytest            # macOS/Linux
 
+# Same suite on Postgres (what CI runs)
+TEST_DATABASE_URL=postgresql+asyncpg://alloyd:alloyd_dev_password@127.0.0.1:5435/alloyd_test \
+  python -m pytest
+
 cd frontend
-npm test
+npm test          # SSE parser and API client unit tests
 npm run lint
-npm run build
+npm run build     # requires NEXT_PUBLIC_API_BASE_URL
+npm run test:e2e  # Playwright smoke
 ```
+
+### End-to-end smoke test
+
+The Playwright suite drives the real stack, so it needs the compose services
+running with the mock provider enabled:
+
+```bash
+ENABLE_MOCK_PROVIDER=true POSTGRES_PORT=5435 BACKEND_PORT=8003 FRONTEND_PORT=3003 \
+ALLOWED_ORIGINS=http://app.lvh.me:3003 COOKIE_DOMAIN=.lvh.me COOKIE_SECURE=false \
+NEXT_PUBLIC_API_BASE_URL=http://api.lvh.me:8003/api \
+  docker compose up -d --build backend frontend
+
+cd frontend
+npx playwright install chromium webkit
+npm run test:e2e
+```
+
+Defaults are `http://app.lvh.me:3003` for the app and
+`http://api.lvh.me:8003/api/` for the API. Override with `E2E_BASE_URL`,
+`E2E_APP_ORIGIN`, and `E2E_API_URL` (with or without its trailing slash).
+Global setup first logs into the fixed account `e2e-smoke@alloyd-e2e.dev`
+(or `E2E_EMAIL`/`E2E_PASSWORD`) and registers it only after a 401. Repeated
+runs therefore do not consume the registration quota; login and chat rate
+limits still apply. The suite covers manual routing, sending, switching
+models, composer bounds, and deleting the conversation on desktop Chromium,
+WebKit, and mobile Chromium at 375×812 using Pixel 7 device emulation.
+WebKit testing on Windows is not a native Safari verification.
+
+Playwright traces are disabled because authenticated network traces can
+capture HttpOnly cookies. The temporary `e2e/.auth/` state is gitignored,
+excluded from Docker builds, and not uploaded as a CI artifact. Failure
+screenshots and reports use only disposable mock-provider test accounts.
+
+`TEST_DATABASE_URL` must point to a disposable database: the suite creates
+and drops its mapped tables. Never target a production database.
