@@ -522,7 +522,7 @@ export default function ChatPage() {
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-zinc-950 via-zinc-950/90 to-transparent pt-10 pb-6 px-4">
           <form onSubmit={e => { e.preventDefault(); handleSend(); }} className="max-w-3xl mx-auto relative flex flex-col bg-zinc-900/80 border border-zinc-800/80 rounded-2xl shadow-xl backdrop-blur-md focus-within:border-zinc-600 transition-colors">
             
-            <div className="flex items-center gap-2 px-4 pt-3 pb-1 border-b border-zinc-800/50">
+            <div className="flex flex-wrap items-center gap-2 px-4 pt-3 pb-1 border-b border-zinc-800/50">
               <Select 
                 options={[{value: "auto", label: "Auto Route"}, {value: "manual", label: "Manual Select"}]}
                 value={mode} 
@@ -532,7 +532,7 @@ export default function ChatPage() {
               />
               
               {mode === "manual" && (
-                <div className="flex items-center gap-2 text-xs font-mono text-zinc-500">
+                <div className="flex flex-wrap items-center gap-2 text-xs font-mono text-zinc-500">
                   <span aria-hidden="true">/</span>
                   <Select 
                     options={manualProviders.map(p => ({value: p, label: p}))}

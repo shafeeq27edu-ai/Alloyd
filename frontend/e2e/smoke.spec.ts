@@ -42,6 +42,13 @@ test("chat round trip with the mock provider", async ({ page }) => {
   await expect(page.getByText("mock-model", { exact: true })).toBeVisible();
 
   await selectOption(page, "Model", "Mock Model Pro");
+  await expect.poll(() => page.locator("form").evaluate(form => {
+    const bounds = form.getBoundingClientRect();
+    return Array.from(form.querySelectorAll("button")).every(button => {
+      const rect = button.getBoundingClientRect();
+      return rect.left >= bounds.left && rect.right <= bounds.right;
+    });
+  })).toBe(true);
   await sendMessage(page, "Second smoke message");
   await expect(page.getByText("mock-model-pro", { exact: true })).toBeVisible();
 

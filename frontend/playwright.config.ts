@@ -14,12 +14,13 @@ export default defineConfig({
   use: {
     baseURL,
     storageState: "e2e/.auth/user.json",
-    trace: "retain-on-failure",
+    // Traces capture HttpOnly cookies in authenticated network traffic.
+    trace: "off",
     screenshot: "only-on-failure",
   },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
     { name: "webkit", use: { ...devices["Desktop Safari"] } },
-    { name: "mobile-chromium", use: { ...devices["Pixel 7"] } },
+    { name: "mobile-chromium", use: { ...devices["Pixel 7"], viewport: { width: 375, height: 812 } } },
   ],
 });

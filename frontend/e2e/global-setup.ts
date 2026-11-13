@@ -13,7 +13,7 @@ const STATE_PATH = path.join(__dirname, ".auth", "user.json");
 async function globalSetup() {
   fs.mkdirSync(path.dirname(STATE_PATH), { recursive: true });
 
-  const api = await request.newContext({ baseURL: API_URL });
+  const api = await request.newContext({ baseURL: `${API_URL.replace(/\/+$/, "")}/` });
   const originHeaders = { Origin: APP_ORIGIN };
 
   const csrfResponse = await api.get("auth/csrf", { headers: originHeaders });
@@ -23,24 +23,21 @@ async function globalSetup() {
   const csrfToken = (await csrfResponse.json()).csrf_token as string;
   const headers = { ...originHeaders, "X-CSRF-Token": csrfToken };
 
-  // Registering is rate limited per IP, so reuse one account and fall back to
-  // login when it already exists.
-  const register = await api.post("auth/register", {
+  // Existing local accounts must not consume the registration quota on every run.
+  const login = await api.post("auth/token", {
     headers,
-    data: { email: EMAIL, password: PASSWORD },
+    form: { username: EMAIL, password: PASSWORD },
   });
-  if (!register.ok()) {
-    const body = await register.text();
-    if (register.status() !== 400 || !body.includes("already registered")) {
-      throw new Error(`Registration failed: ${register.status()} ${body}`);
-    }
-    const login = await api.post("auth/token", {
+  if (login.status() === 401) {
+    const register = await api.post("auth/register", {
       headers,
-      form: { username: EMAIL, password: PASSWORD },
+      data: { email: EMAIL, password: PASSWORD },
     });
-    if (!login.ok()) {
-      throw new Error(`Login failed: ${login.status()} ${await login.text()}`);
+    if (!register.ok()) {
+      throw new Error(`Registration failed: ${register.status()}`);
     }
+  } else if (!login.ok()) {
+    throw new Error(`Login failed: ${login.status()}`);
   }
 
   const keyResponse = await api.post("keys/", {
@@ -54,7 +51,7 @@ async function globalSetup() {
         "The mock provider is not registered. Start the backend with ENABLE_MOCK_PROVIDER=true."
       );
     }
-    throw new Error(`Storing the mock key failed: ${keyResponse.status()} ${body}`);
+    throw new Error(`Storing the mock key failed: ${keyResponse.status()}`);
   }
 
   await api.storageState({ path: STATE_PATH });
