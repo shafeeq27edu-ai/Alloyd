@@ -190,3 +190,19 @@
 
 **Revisit if:** more user-owned tables are added; the delete list must grow with them, and a test should assert every new table is covered.
 
+
+## 2026-11-14 — Usage events are content-free attempts; prices are configuration
+
+**Context:** Phase 7 needs a routing event per message (category, provider/model, mode, fallback, error code, latency) and token counts with an estimated cost, without logging message content. Providers differ in what they report: Groq and Anthropic return exact usage, Gemini streams cumulative `usage_metadata`, and some attempts fail before any usage exists. The catalog also contains model IDs whose list prices this repository cannot verify.
+
+**Options:**
+- Storage: (a) add usage columns to `messages`; (b) a separate `usage_events` table with one row per provider attempt.
+- Content: (a) store a prompt excerpt for debugging; (b) store routing metadata and counts only.
+- Tokens: (a) require provider-reported usage and leave gaps; (b) fall back to a characters/4 estimate with a `token_source` label.
+- Pricing: (a) hard-code remembered list prices; (b) ship an empty price table that operators fill through `PRICING_JSON`.
+
+**Decision:** (b) in each case. Each attempt writes one row: provider, model, mode, category, status, error code, `fallback_from`, latency, tokens, `token_source`, and cost. The successful attempt links to the assistant message; the failed attempt that triggered a fallback stays as its own error row. A regenerated answer keeps its spend row even though the message is replaced (`message_id` is not a foreign key). Account deletion removes usage explicitly; conversation deletion removes it through the ORM cascade.
+
+**Why:** A separate table keeps the message schema about content and makes "no content in analytics" structural rather than a convention. One row per attempt is the only shape that can answer "how often does fallback fire, and what did each leg cost". The `token_source` label keeps estimates honest instead of presenting them as provider facts. Inventing prices for unverifiable model IDs would put confidently wrong dollar amounts in the UI; an empty table shows tokens and no cost until the owner configures verified numbers.
+
+**Revisit if:** prices need per-account or dated history tables, a tokenizer replaces the characters/4 estimate, or a provider starts returning usage on failed requests.

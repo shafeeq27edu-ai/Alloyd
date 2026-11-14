@@ -127,6 +127,30 @@ statements between transactions. The API detects `pooler.supabase.com` and
 PgBouncer deployments set `DB_DISABLE_PREPARED_STATEMENTS=true` or use the
 session pooler (port `5432`).
 
+## Measurement
+
+Every chat attempt writes one content-free `usage_events` row (route, status,
+tokens, latency, estimated cost). Two scripts read it:
+
+```bash
+cd backend
+# Aggregate stored usage; add --days 7 for a window
+.venv/Scripts/python.exe scripts/report_usage.py
+
+# Classifier accuracy on the labeled prompt set
+.venv/Scripts/python.exe scripts/evaluate_classifier.py
+```
+
+The report script uses `DATABASE_URL` (environment or `.env`). Costs stay
+unknown until `PRICING_JSON` names verified prices:
+
+```
+PRICING_JSON={"groq/openai/gpt-oss-20b": {"input": 0.15, "output": 0.75}}
+```
+
+Values are USD per million tokens. Without it the UI shows tokens only, and
+token counts a provider did not report are marked with `~`.
+
 ## Tests
 
 ```bash
@@ -139,7 +163,7 @@ TEST_DATABASE_URL=postgresql+asyncpg://alloyd:alloyd_dev_password@127.0.0.1:5435
   python -m pytest
 
 cd frontend
-npm test          # SSE parser and API client unit tests
+npm test          # SSE parser, API client, and usage formatting unit tests
 npm run lint
 npm run build     # requires NEXT_PUBLIC_API_BASE_URL
 npm run test:e2e  # Playwright smoke

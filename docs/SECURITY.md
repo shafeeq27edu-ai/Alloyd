@@ -56,6 +56,7 @@ Status: Phase 3 complete (2026-11-09). This documents what is protected, how, an
 
 - Logs never contain provider keys, message content, DSNs, or ciphertext.
 - `rotate_keys.py` prints counts and row IDs only; database connection failures print the exception class only.
+- `usage_events` (Phase 7) stores routing metadata, token counts, latency, and estimated cost. It never stores prompts, answers, or raw provider error text.
 
 ## Known limitations
 
@@ -70,6 +71,8 @@ Status: Phase 3 complete (2026-11-09). This documents what is protected, how, an
 - `gitleaks` is not installed; Phase 6 adds it to CI. Current scans are pattern-based and print paths only.
 - Account deletion requires the account password and destroys API keys with the account; there is no soft-delete window.
 - Copy-to-clipboard uses the Clipboard API, which browsers expose only in a secure context. Over plain-HTTP sibling hosts the UI reports a failure toast; production runs on HTTPS.
+- Per-message cost is unknown until `PRICING_JSON` is configured. Token counts are provider-reported when available; otherwise they are characters/4 estimates and the UI marks them with `~`.
+- Usage events have no export or retention policy yet; they are deleted with their conversation or account.
 
 ## Verification
 

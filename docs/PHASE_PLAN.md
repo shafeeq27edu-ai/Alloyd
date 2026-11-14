@@ -165,6 +165,7 @@ whether to delete it.
 ---
 
 ## Phase 7 — Measurement
+**Status:** VERIFIED — acceptance criteria met and recorded on 2026-11-14; awaiting explicit owner approval.
 **Goal:** evidence for future decisions, with no message content ever logged.
 
 - Routing event per message: category, provider/model, auto vs manual, fallback fired, error code, latency.
@@ -173,6 +174,29 @@ whether to delete it.
 - A simple `scripts/report_usage.py` summarizing the above.
 
 **Acceptance:** events stored without content; cost display tested; classifier accuracy report produced.
+
+### Verification record — 2026-11-14
+
+| Check | Result | Evidence / limitation |
+| :--- | :--- | :--- |
+| Events stored without content | PASS | `usage_events` holds routing metadata, counts, and cost only. `tests/test_usage.py` asserts the table has no content column and that the prompt does not appear in any stored value. `report_usage.py` reads only this table, never `messages`. |
+| Routing event fields | PASS | One row per provider attempt: category, provider/model, auto vs manual, status, error code, `fallback_from`, latency. The fallback test asserts a `TIMEOUT` row for Groq followed by a successful Gemini row whose `fallback_from` names the failed route. |
+| Token counts | PASS | Groq streams `include_usage`, Anthropic reads the final message usage, Gemini keeps `usage_metadata`, and the mock adapter reports fixed counts. Attempts without provider counts are estimated at characters/4 and labelled `token_source=estimated`; unit tests cover both paths. |
+| Cost display tested | PASS | `PRICING_JSON` prices compute a cost in the backend test (`12 in / 4 out` at $1/$2 per 1M → $0.00002) and travel through the SSE `usage` event and the messages API. `src/lib/usage.ts` has dedicated formatting tests (22 frontend tests total). The Playwright smoke asserts `11 in · 7 out` in the UI. No prices ship by default, so the live UI shows tokens without a dollar figure until the owner sets `PRICING_JSON`; prices were deliberately not invented. |
+| Classifier accuracy report | PASS | 41/62 (66.1%) on the labeled set; full report in `docs/CLASSIFIER_ACCURACY.md`. Every miss predicts GENERAL (never a wrong specific category); WRITING is weakest at 41.7%. `tests/test_classifier_dataset.py` guards the dataset shape and a 0.60 floor. |
+| `scripts/report_usage.py` | PASS | Ran against the Compose Postgres database after a live mock-provider message: 1 event, provider-reported tokens, 6 ms latency, correct category, and `n/a` cost. Aggregates by provider/model, category, mode, and day; `--days` filters. |
+| Migration on Postgres | PASS | Compose `migrate` service applied `b8e4d2f6a1c3 → c4d9e8a7b6f5 add usage events`; API reported ready and the stack served the Playwright run. |
+| Deletion coverage | PASS | Deleting a conversation removes its usage rows through the ORM cascade; deleting an account removes them explicitly. Both paths are tested. |
+| Backend suite | PASS | 142 passed locally on SQLite (up from 128). Postgres parity is exercised by the Compose stack and remains enforced by the CI backend job. |
+| Frontend checks | PASS | 22 unit tests, `npm run lint` clean, production build succeeds with `NEXT_PUBLIC_API_BASE_URL` set. |
+| Playwright smoke | PASS | Chromium, WebKit, and mobile Chromium all pass against the rebuilt stack, including the new usage line. |
+
+**Approval:** AWAITING OWNER APPROVAL. The three acceptance criteria are
+verified locally and against the Compose Postgres stack. The known limitation
+is that per-message cost stays absent in the UI until verified prices are
+configured, and the meaningful Phase 7 finding is that Auto routing classifies
+only 66.1% of representative prompts as intended — every miss falling back to
+GENERAL. Improving the classifier is follow-up work, not part of this phase.
 
 ---
 
