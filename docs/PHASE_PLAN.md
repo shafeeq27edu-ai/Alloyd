@@ -190,6 +190,7 @@ whether to delete it.
 | Backend suite | PASS | 142 passed locally on SQLite (up from 128). Postgres parity is exercised by the Compose stack and remains enforced by the CI backend job. |
 | Frontend checks | PASS | 22 unit tests, `npm run lint` clean, production build succeeds with `NEXT_PUBLIC_API_BASE_URL` set. |
 | Playwright smoke | PASS | Chromium, WebKit, and mobile Chromium all pass against the rebuilt stack, including the new usage line. |
+| Remote CI | PASS | Run [43623178555](https://github.com/shafeeq27edu-ai/Alloyd/actions/runs/43623178555) on `46981cf` concluded `success`: secrets scan, backend suite on Postgres, frontend lint/test/build, and the Compose E2E job. |
 
 **Approval:** AWAITING OWNER APPROVAL. The three acceptance criteria are
 verified locally and against the Compose Postgres stack. The known limitation
