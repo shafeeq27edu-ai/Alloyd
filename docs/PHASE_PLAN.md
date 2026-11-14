@@ -116,7 +116,7 @@ Read-only audit completed. Findings drive the phases below.
 ---
 
 ## Phase 6 — Quality gates
-**Status:** IN PROGRESS — local checks verified on 2026-11-13; final remote CI and the CI failure/revert demonstration remain unverified.
+**Status:** VERIFIED — acceptance criteria met and recorded on 2026-11-14; awaiting explicit owner approval.
 
 **Goal:** automated protection against regressions.
 
@@ -143,9 +143,9 @@ Read-only audit completed. Findings drive the phases below.
 | `pip-audit -r requirements.txt` | PASS | No known runtime dependency vulnerabilities. |
 | `npm audit --audit-level=high` | PASS WITH FINDINGS | Exit 0 at the configured high-severity threshold; nine moderate development dependency findings remain. No dependency auto-fix or downgrade performed. |
 | Native Safari | NOT RUN — OWNER WAIVER | Owner explicitly waived native Safari on 2026-11-13. WebKit emulation passed, but macOS/iOS cookie and SSE compatibility remains unverified; that risk is carried. |
-| Remote CI at `a33d8f0` | PARTIAL / UNVERIFIED | Earlier observations showed backend, frontend and secret-scan jobs succeeded; final E2E conclusion/logs could not be retrieved. GitHub CLI is installed but unauthenticated. |
+| Remote CI on `main` | PASS | `f721952` run [43598609724](https://github.com/shafeeq27edu-ai/Alloyd/actions/runs/43598609724) and `e8e437e` run [43440177982](https://github.com/shafeeq27edu-ai/Alloyd/actions/runs/43440177982) both passed all four jobs: secret scan, backend on Postgres, frontend checks, and Playwright E2E. |
 | Full-history local gitleaks scan | TRIAGED — FALSE POSITIVE | Renewed redacted inspection was authorized on 2026-11-13. The only `generic-api-key` finding is `backend/scripts/smoke_providers.py:3–4` at `51840b6dac8ae17fdf365f56414c19960a8b406e`: a module-docstring run instruction assigning ellipsis placeholders to provider-key variables, not credentials. Raw scan still exits 1; no suppression or history rewrite was added. |
-| Remote CI failing-test/revert demonstration | IN PROGRESS / UNVERIFIED | Owner authorized the isolated `ci/failure-demo` branch. `f20f9e3` changes one SSE expected value; local tests report exactly 16 passing and 1 failing, with lint passing. The commit was pushed only to that branch. GitHub CLI remains unauthenticated, so remote failure has not been confirmed and no reverting commit has been pushed yet. Main is unaffected at `e8e437e`, with 17 tests passing after returning to it. The branch must not be deleted until the red run and the green revert are both recorded. |
+| Remote CI failing-test/revert demonstration | PASS | On isolated branch `ci/failure-demo`: `f20f9e3` run [43439784660](https://github.com/shafeeq27edu-ai/Alloyd/actions/runs/43439784660) failed at `Frontend checks → Run npm test` (16 pass, 1 fail, `AssertionError` on the changed value) while backend Postgres tests and the secret scan passed. Revert `9a319c2` run [43598914653](https://github.com/shafeeq27edu-ai/Alloyd/actions/runs/43598914653) passed all four jobs. `main` was never changed by the demonstration. |
 
 Security review disabled authenticated Playwright traces, which can capture
 HttpOnly cookies; temporary auth state is excluded from git, Docker builds,
@@ -153,13 +153,14 @@ and artifact upload paths. Setup errors no longer print raw auth responses.
 Application BYOK, ownership checks, cookies, CSRF and CORS were not weakened;
 the backend security and ownership tests passed with the suite.
 
-**Approval:** NOT APPROVED. The locally verified security and mobile corrections
-were pushed to main in `82f1cb4`; their remote CI result remains unverified.
-GitHub CLI authentication was rechecked and is still unavailable. Remote CI
-results and the failure/revert demonstration remain open. The scan finding
-was verified as a placeholder false positive without displaying secret values
-or weakening scanner rules. Native Safari is owner-waived and remains NOT RUN;
-its compatibility risk is carried, not marked as passed.
+**Approval:** AWAITING OWNER APPROVAL. Both acceptance criteria are verified
+remotely: `main` is green end to end, and the isolated branch shows CI turning
+red on a deliberate regression and green again after the revert. The scan
+finding was verified as a placeholder false positive without displaying secret
+values or weakening scanner rules. Native Safari is owner-waived and remains
+NOT RUN; its compatibility risk is carried, not marked as passed. The
+`ci/failure-demo` branch is retained as evidence until the owner decides
+whether to delete it.
 
 ---
 
