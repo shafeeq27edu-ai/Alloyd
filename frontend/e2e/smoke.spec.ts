@@ -40,6 +40,7 @@ test("chat round trip with the mock provider", async ({ page }) => {
 
   await sendMessage(page, "Hello from the smoke test");
   await expect(page.getByText("mock-model", { exact: true })).toBeVisible();
+  await expect(page.getByText("11 in · 7 out")).toBeVisible();
 
   await selectOption(page, "Model", "Mock Model Pro");
   await expect.poll(() => page.locator("form").evaluate(form => {

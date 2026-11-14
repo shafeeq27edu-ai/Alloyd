@@ -3,6 +3,7 @@
 It is registered only when ``ENABLE_MOCK_PROVIDER`` is set, so it never ships
 in a normal deployment. It performs no network calls.
 """
+import json
 from typing import AsyncGenerator, Dict, List, Tuple
 
 from app.core.errors import ErrorCode, ProviderError
@@ -33,6 +34,7 @@ class MockAdapter(BaseProviderAdapter):
         self, api_key: str, model_id: str, messages: List[Dict[str, str]]
     ) -> AsyncGenerator[Tuple[str, str], None]:
         yield ("message", self._reply(messages))
+        yield ("usage", json.dumps({"input_tokens": 11, "output_tokens": 7}))
         yield ("done", "")
 
     @staticmethod

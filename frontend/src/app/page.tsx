@@ -11,8 +11,9 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Menu, Settings, SendHorizontal, AlertCircle, Sparkles, Square, RotateCcw, Copy, Check } from "lucide-react";
 import Select from "@/components/Select";
 import { useToast } from "@/components/Toast";
+import { formatUsage, usageTitle, type MessageUsage } from "@/lib/usage";
 
-type Message = { role: string; content: string; provider?: string; model?: string; mode?: string; category?: string };
+type Message = { role: string; content: string; provider?: string; model?: string; mode?: string; category?: string; usage?: MessageUsage | null };
 type ModelOption = { id: string; name: string; capabilities: string[] };
 
 export default function ChatPage() {
@@ -249,6 +250,19 @@ export default function ChatPage() {
           return;
         }
 
+        if (ev.event === "usage") {
+          try {
+            const usage = JSON.parse(ev.data) as MessageUsage;
+            setMessages(prev => {
+              if (activeConversationRef.current !== streamTargetRef.current) return prev;
+              const last = prev[prev.length - 1];
+              if (!last || last.role !== "assistant") return prev;
+              return [...prev.slice(0, -1), { ...last, usage }];
+            });
+          } catch { /* ignore parse errors */ }
+          return;
+        }
+
         if (ev.event === "message") {
           try {
             const data = JSON.parse(ev.data);
@@ -433,6 +447,12 @@ export default function ChatPage() {
                               <>
                                 <span className="text-zinc-700" aria-hidden="true">/</span>
                                 <span className="text-zinc-400">{m.category}</span>
+                              </>
+                            )}
+                            {formatUsage(m.usage) && (
+                              <>
+                                <span className="text-zinc-700" aria-hidden="true">/</span>
+                                <span title={usageTitle(m.usage)}>{formatUsage(m.usage)}</span>
                               </>
                             )}
                             {m.mode === 'auto' && (

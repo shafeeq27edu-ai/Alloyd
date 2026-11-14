@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete
@@ -8,7 +9,7 @@ from sqlalchemy.future import select
 from pydantic import BaseModel, Field, model_validator
 from typing import Optional
 from app.db.database import get_db
-from app.db.models import ProviderKey, User, Conversation, Message
+from app.db.models import ProviderKey, User, Conversation, Message, UsageEvent
 from app.core.encryption import decrypt_key
 from app.api.deps import get_current_user, verify_csrf
 from app.providers.registry import ProviderRegistry
@@ -18,6 +19,7 @@ from app.core.title_generator import generate_and_update_title
 from app.core.rate_limit import check_rate_limit
 from app.core.errors import ProviderError, ErrorCode
 from app.core.history import trim_history
+from app.core.usage import estimate_cost, parse_prices, resolve_usage
 from app.config import settings
 import asyncio
 
@@ -27,6 +29,53 @@ logger = logging.getLogger(__name__)
 
 def _should_fallback(err: dict) -> bool:
     return bool(err.get("retryable")) or err.get("code") == ErrorCode.MODEL_UNAVAILABLE.value
+
+
+def _usage_totals(provider: str, model: str, provider_usage, api_messages, response_text: str) -> dict:
+    input_tokens, output_tokens, token_source = resolve_usage(
+        provider_usage, api_messages, response_text
+    )
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "token_source": token_source,
+        "estimated_cost_usd": estimate_cost(
+            provider, model, input_tokens, output_tokens, parse_prices(settings.PRICING_JSON)
+        ),
+    }
+
+
+async def _record_usage(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    conversation_id: str,
+    provider: str,
+    model: str,
+    mode: str,
+    category: str | None,
+    status: str,
+    latency_ms: int,
+    error_code: str | None = None,
+    fallback_from: str | None = None,
+    message_id: str | None = None,
+    totals: dict | None = None,
+) -> None:
+    db.add(UsageEvent(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        message_id=message_id,
+        provider=provider,
+        model=model,
+        mode=mode,
+        category=category,
+        status=status,
+        error_code=error_code,
+        fallback_from=fallback_from,
+        latency_ms=latency_ms,
+        **(totals or {}),
+    ))
+    await db.commit()
 
 
 def _resolve_legacy_route(mode: str | None, provider: str | None, model: str | None):
@@ -244,11 +293,40 @@ async def stream_chat(
         notices.append(f"{dropped_messages} older {noun} omitted to fit the model's context window.")
     notice_text = " ".join(notices) if notices else None
 
+    db_category = getattr(category, "value", str(category)) if req_mode == "auto" else None
+
     async def generate():
         nonlocal target_provider, target_model, adapter, plain_key
         fallback_attempted = False
+        fallback_from: str | None = None
+
+        async def record_attempt(attempt: dict, status: str, *, error_code=None, message_id=None, totals=None):
+            await _record_usage(
+                db,
+                user_id=current_user.id,
+                conversation_id=conversation.id,
+                provider=attempt["provider"],
+                model=attempt["model"],
+                mode=req_mode,
+                category=db_category,
+                status=status,
+                latency_ms=attempt["elapsed_ms"](),
+                error_code=error_code,
+                fallback_from=attempt["fallback_from"],
+                message_id=message_id,
+                totals=totals,
+            )
 
         while True:
+            started = time.perf_counter()
+            attempt = {
+                "provider": target_provider,
+                "model": target_model,
+                "fallback_from": fallback_from,
+                "elapsed_ms": lambda: int((time.perf_counter() - started) * 1000),
+            }
+            provider_usage = None
+
             routing_meta = {
                 "provider": target_provider,
                 "model": target_model,
@@ -272,30 +350,42 @@ async def stream_chat(
                         first_chunk_received = True
                         full_response += data
                         yield f"event: message\ndata: {json.dumps({'content': data})}\n\n"
+                    elif event == "usage":
+                        try:
+                            provider_usage = json.loads(data)
+                        except json.JSONDecodeError:
+                            provider_usage = None
                     elif event == "done":
+                        totals = _usage_totals(
+                            attempt["provider"], attempt["model"], provider_usage, api_messages, full_response
+                        )
                         if replacement_ids:
                             await db.execute(delete(Message).where(Message.id.in_(replacement_ids)))
                         assistant_msg = Message(conversation_id=conversation.id, role="assistant", content=full_response)
                         db.add(assistant_msg)
-                        await db.commit()
+                        await db.flush()
+                        await record_attempt(attempt, "success", message_id=assistant_msg.id, totals=totals)
+                        yield f"event: usage\ndata: {json.dumps(totals)}\n\n"
                         yield "event: done\ndata: {}\n\n"
                     elif event == "error":
+                        try:
+                            err_dict = json.loads(data)
+                        except json.JSONDecodeError:
+                            err_dict = {}
+                        await record_attempt(attempt, "error", error_code=err_dict.get("code"))
                         if not first_chunk_received and not fallback_attempted and req_mode == "auto":
-                            try:
-                                err_dict = json.loads(data)
-                                if _should_fallback(err_dict):
-                                    if err_dict.get("code") == ErrorCode.MODEL_UNAVAILABLE.value:
-                                        logger.warning(
-                                            "Model unavailable for %s/%s; falling back (auto mode).",
-                                            target_provider, target_model,
-                                        )
-                                    error_event_data = data
-                                    break
-                            except json.JSONDecodeError:
-                                pass
+                            if _should_fallback(err_dict):
+                                if err_dict.get("code") == ErrorCode.MODEL_UNAVAILABLE.value:
+                                    logger.warning(
+                                        "Model unavailable for %s/%s; falling back (auto mode).",
+                                        target_provider, target_model,
+                                    )
+                                error_event_data = data
+                                break
                         yield f"event: error\ndata: {data}\n\n"
             except Exception as e:
                 err_dict = e.to_dict() if hasattr(e, "to_dict") else {"detail": "Provider request failed."}
+                await record_attempt(attempt, "error", error_code=err_dict.get("code"))
                 if not first_chunk_received and not fallback_attempted and req_mode == "auto" and _should_fallback(err_dict):
                     if err_dict.get("code") == ErrorCode.MODEL_UNAVAILABLE.value:
                         logger.warning(
@@ -335,6 +425,7 @@ async def stream_chat(
                     yield f"event: error\ndata: {error_event_data}\n\n"
                     break
 
+                fallback_from = f"{attempt['provider']}/{attempt['model']}"
                 target_provider = fallback_provider
                 target_model = fallback_model
                 try:

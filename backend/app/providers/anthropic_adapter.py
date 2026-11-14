@@ -66,6 +66,12 @@ class AnthropicAdapter(BaseProviderAdapter):
             async with client.messages.stream(**kwargs) as stream:
                 async for text in stream.text_stream:
                     yield "message", text
+                final = await stream.get_final_message()
+            if final.usage is not None:
+                yield "usage", json.dumps({
+                    "input_tokens": final.usage.input_tokens,
+                    "output_tokens": final.usage.output_tokens,
+                })
             yield "done", ""
         except Exception as e:
             err = self._map_error(e)

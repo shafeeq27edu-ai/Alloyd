@@ -93,9 +93,17 @@ class GeminiAdapter(BaseProviderAdapter):
                 config=config
             )
 
+            usage = None
             async for chunk in response:
+                if getattr(chunk, "usage_metadata", None) is not None:
+                    usage = chunk.usage_metadata
                 if chunk.text:
                     yield ("message", chunk.text)
+            if usage is not None:
+                yield ("usage", json.dumps({
+                    "input_tokens": getattr(usage, "prompt_token_count", None),
+                    "output_tokens": getattr(usage, "candidates_token_count", None),
+                }))
             yield ("done", "")
         except Exception as e:
             err = self._map_error(e)

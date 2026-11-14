@@ -50,12 +50,20 @@ class GroqAdapter(BaseProviderAdapter):
             stream = await client.chat.completions.create(
                 messages=messages,
                 model=model_id,
-                stream=True
+                stream=True,
+                stream_options={"include_usage": True},
             )
             async for chunk in stream:
-                content = chunk.choices[0].delta.content
-                if content:
-                    yield ("message", content)
+                usage = getattr(chunk, "usage", None)
+                if usage is not None:
+                    yield ("usage", json.dumps({
+                        "input_tokens": usage.prompt_tokens,
+                        "output_tokens": usage.completion_tokens,
+                    }))
+                if chunk.choices:
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        yield ("message", content)
             yield ("done", "")
         except Exception as e:
             err = self._map_error(e)

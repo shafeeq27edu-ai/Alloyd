@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from app.db.database import get_db
-from app.db.models import User, ProviderKey, Conversation, Message
+from app.db.models import User, ProviderKey, Conversation, Message, UsageEvent
 from app.core.security import verify_password, get_password_hash, create_access_token
 from datetime import timedelta
 from app.config import settings
@@ -142,6 +142,7 @@ async def delete_account(
 
     conversation_ids = select(Conversation.id).where(Conversation.user_id == current_user.id)
     await db.execute(delete(Message).where(Message.conversation_id.in_(conversation_ids)))
+    await db.execute(delete(UsageEvent).where(UsageEvent.user_id == current_user.id))
     await db.execute(delete(Conversation).where(Conversation.user_id == current_user.id))
     await db.execute(delete(ProviderKey).where(ProviderKey.user_id == current_user.id))
     await db.execute(delete(User).where(User.id == current_user.id))

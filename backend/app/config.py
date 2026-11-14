@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     # Roughly four characters per token, so the default stays well inside every
     # catalog model's context window.
     HISTORY_MAX_CHARS: int = 24_000
+    # Optional USD-per-million-token price table keyed "provider/model", e.g.
+    # {"groq/openai/gpt-oss-120b": {"input": 0.15, "output": 0.75}}. Empty means
+    # costs are recorded as unknown instead of invented.
+    PRICING_JSON: str = ""
 
     # Cookie scoping. COOKIE_DOMAIN is required for sibling subdomains
     # (e.g. ".alloyd.com" so app.alloyd.com and api.alloyd.com share the
@@ -99,6 +103,14 @@ class Settings(BaseSettings):
         origins = [origin.strip() for origin in v.split(",") if origin.strip()]
         if "*" in origins:
             raise ValueError("ALLOWED_ORIGINS cannot contain a wildcard when credentials are enabled.")
+        return v
+
+    @field_validator("PRICING_JSON")
+    @classmethod
+    def validate_pricing_json(cls, v: str) -> str:
+        from app.core.usage import parse_prices
+
+        parse_prices(v)
         return v
 
     @field_validator("SECRET_KEY")

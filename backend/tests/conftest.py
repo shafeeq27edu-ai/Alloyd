@@ -177,7 +177,8 @@ class MockAdapter(BaseProviderAdapter):
         sys_prompts = [m["content"] for m in messages if m["role"] == "system"]
         if sys_prompts:
             yield ("message", " " + sys_prompts[0])
-            
+
+        yield ("usage", json.dumps({"input_tokens": 12, "output_tokens": 4}))
         yield ("done", "")
 
 @pytest.fixture(autouse=True)
