@@ -6,7 +6,7 @@ import { SSEParser } from "./sse.ts";
 test("dispatches an event on a blank line", () => {
   const parser = new SSEParser();
   const events = parser.push("event: routing\ndata: {\"a\":1}\n\n");
-  assert.deepEqual(events, [{ event: "routing", data: "{\"a\":2}" }]);
+  assert.deepEqual(events, [{ event: "routing", data: "{\"a\":1}" }]);
 });
 
 test("buffers an event split across chunks", () => {
