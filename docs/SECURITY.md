@@ -1,6 +1,6 @@
 # Alloyd Security Model
 
-Status: Phase 3 complete (2026-11-09). This documents what is protected, how, and what is explicitly not.
+Status: controls verified through Phase 7 (2026-11-14); the records below are dated. This documents what is protected, how, and what is explicitly not.
 
 ## Assets
 
@@ -60,7 +60,7 @@ Status: Phase 3 complete (2026-11-09). This documents what is protected, how, an
 
 ## Known limitations
 
-- Rate limiting is in-memory and per process. Multiple workers need a shared store (Phase 4+).
+- Rate limiting is in-memory and per process. Multiple workers would need a shared store.
 - No MFA, email verification, password reset, or account lockout beyond rate limits.
 - Conversation content is stored in plaintext in Postgres; database access control is the boundary.
 - CSP keeps `unsafe-inline` because Next.js uses inline bootstrap scripts. A nonce/hash policy is not implemented.
@@ -68,7 +68,7 @@ Status: Phase 3 complete (2026-11-09). This documents what is protected, how, an
 - Key rotation is a manual, operator-run script with a maintenance window.
 - There is no audit trail for provider-key access.
 - Key validation necessarily sends the supplied key to the provider.
-- `gitleaks` is not installed; Phase 6 adds it to CI. Current scans are pattern-based and print paths only.
+- Local scans are pattern-based and print file paths only; CI runs gitleaks over the full git history on every push.
 - Account deletion requires the account password and destroys API keys with the account; there is no soft-delete window.
 - Copy-to-clipboard uses the Clipboard API, which browsers expose only in a secure context. Over plain-HTTP sibling hosts the UI reports a failure toast; production runs on HTTPS.
 - Per-message cost is unknown until `PRICING_JSON` is configured. Token counts are provider-reported when available; otherwise they are characters/4 estimates and the UI marks them with `~`.

@@ -202,6 +202,8 @@ GENERAL. Improving the classifier is follow-up work, not part of this phase.
 ---
 
 ## Phase 8 — Docs and legal drafts
+**Status:** IN PROGRESS — docs written on 2026-11-15; fresh-clone verification pending.
+
 **Goal:** a stranger can run it, and the docs match the code.
 
 - Root `README.md` (setup, architecture, security model, how to run tests).
@@ -211,6 +213,11 @@ GENERAL. Improving the classifier is follow-up work, not part of this phase.
 - License: owner chooses; agent adds it.
 
 **Acceptance:** someone following the README from a fresh clone gets the app running (agent verifies in a clean directory); no doc contradicts the code.
+
+### Verification record
+
+_Pending. Filled in after the fresh-clone run._
+
 
 ---
 

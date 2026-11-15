@@ -206,3 +206,18 @@
 **Why:** A separate table keeps the message schema about content and makes "no content in analytics" structural rather than a convention. One row per attempt is the only shape that can answer "how often does fallback fire, and what did each leg cost". The `token_source` label keeps estimates honest instead of presenting them as provider facts. Inventing prices for unverifiable model IDs would put confidently wrong dollar amounts in the UI; an empty table shows tokens and no cost until the owner configures verified numbers.
 
 **Revisit if:** prices need per-account or dated history tables, a tokenizer replaces the characters/4 estimate, or a provider starts returning usage on failed requests.
+
+## 2026-11-15 — Rule-based classifier for routing; five categories shipped
+
+**Context:** Auto routing needs a category for every message before it can pick a model. An earlier classifier called Groq (`llama3-8b-8192`) to decide `PLANNING_DECISION` versus `GENERAL` (removed in `403e92d`). Phase 7 measured the current rule-based classifier at 41/62 (66.1%) on a labeled set, with every miss falling through to `GENERAL`.
+
+**Options:**
+- (a) Ask an LLM to classify each message.
+- (b) Deterministic regex heuristics plus explicit `@skill` mentions, with `GENERAL` as the catch-all.
+- (c) Train or embed a local classifier.
+
+**Decision:** (b). The shipped categories are `CODING`, `RESEARCH`, `WRITING`, `PLANNING_DECISION`, and `GENERAL` (`IMAGE_GENERATION` was removed separately and deferred to V2). An `@skill` mention wins, then ordered patterns per category, then `GENERAL`. The result feeds `router_config.yaml`; there is no network call.
+
+**Why:** routing must work on the first message with exactly one provider key configured, and that key may be from any provider. An extra LLM round-trip before every answer adds latency and spend to the product's main loop and fails when that specific provider's key is missing or invalid. Rules are deterministic and unit-testable. The recorded cost is accuracy: WRITING is weakest (41.7%), but every miss lands in `GENERAL`, which is always a valid route, so a misclassification degrades model choice rather than producing an error.
+
+**Revisit if:** routing becomes user-visible enough that 66.1% is not acceptable (candidate: before the Phase 9 release audit), or if a provider-agnostic local classifier becomes cheap to run.

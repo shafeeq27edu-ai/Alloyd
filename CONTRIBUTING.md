@@ -4,7 +4,9 @@
 
 Alloyd is a multi-provider AI chat workspace built on a BYOK (Bring Your Own Key) architecture. It supports Groq, Google Gemini, and Anthropic Claude through deterministic model routing, provider fallback, and reusable prompt-based skills.
 
-**Stack:** Next.js frontend, FastAPI backend, Supabase PostgreSQL, SQLAlchemy + Alembic, JWT authentication, Fernet-encrypted provider keys.
+**Stack:** Next.js 16 frontend, FastAPI backend, PostgreSQL 16, SQLAlchemy 2 +
+Alembic, cookie-based JWT authentication, Fernet-encrypted provider keys. Docker
+compose runs the whole production-like stack.
 
 ## 2. Development Philosophy
 
@@ -25,11 +27,12 @@ Plan → Implement → Test → Audit → Fix → Re-test → Commit
 alloyd/
 ├── backend/
 │   ├── app/
-│   │   ├── api/          # FastAPI route handlers (auth, keys, chat, conversations)
-│   │   ├── core/         # Security, encryption, rate limiting, errors
+│   │   ├── api/          # FastAPI route handlers (auth, keys, chat, conversations, catalog)
+│   │   ├── core/         # router, classifier, skills, history, usage, security, encryption
 │   │   ├── db/           # SQLAlchemy models and database config
-│   │   └── providers/    # Provider adapters (Groq, Gemini, Anthropic)
+│   │   └── providers/    # Provider adapters (Groq, Gemini, Anthropic, mock)
 │   ├── alembic/          # Database migrations
+│   ├── scripts/          # Usage report, classifier evaluation, key rotation, provider smoke
 │   ├── tests/            # Backend test suite
 │   ├── requirements.txt
 │   └── .env.example
@@ -37,21 +40,30 @@ alloyd/
 │   ├── src/
 │   │   ├── app/          # Next.js pages (chat, login, settings)
 │   │   ├── components/   # Reusable UI components
-│   │   └── lib/          # API client and utilities
+│   │   └── lib/          # API client, SSE parser, usage formatting
+│   ├── e2e/              # Playwright smoke test
 │   └── package.json
-└── docs/                 # Project documentation
+├── docs/                 # Project documentation, decisions, legal drafts
+└── docker-compose.yml    # Postgres + migrations + API + web
 ```
 
+The root [`README.md`](README.md) is the setup guide; [`docs/RUNNING.md`](docs/RUNNING.md)
+documents every environment variable and the end-to-end test setup.
+
 ## 4. Local Development
+
+The fastest path is Docker: `docker compose up --build` (see the root README).
+To run the services directly:
 
 ### Backend
 
 ```bash
 cd backend
-python -m venv venv
-source venv/bin/activate        # or venv\Scripts\activate on Windows
-pip install -r requirements.txt
+python -m venv .venv
+source .venv/bin/activate       # or .venv\Scripts\activate on Windows
+pip install -r requirements-dev.txt
 cp .env.example .env            # then fill in your values
+alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
@@ -59,7 +71,7 @@ uvicorn app.main:app --reload
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -75,11 +87,11 @@ alembic revision --autogenerate -m "description"   # create a new migration
 
 Use a local `.env` file in the `backend/` directory. **Never commit `.env` files.**
 
-See `backend/.env.example` for the required variables:
+See `backend/.env.example` for the full list. The required values are:
 
-- `DATABASE_URL` — PostgreSQL connection string
-- `SECRET_KEY` — JWT signing secret
-- `ENCRYPTION_KEY` — Fernet key for provider API key encryption
+- `DATABASE_URL` — PostgreSQL (or SQLite for a local look) connection string
+- `SECRET_KEY` — JWT signing secret, at least 32 characters
+- `ENCRYPTION_KEY` — 32-byte url-safe base64 Fernet key for provider keys
 - `ACCESS_TOKEN_EXPIRE_MINUTES` — Session duration
 
 Provider API keys are configured per-user through the application UI, not through environment variables.
@@ -91,12 +103,15 @@ Provider API keys are configured per-user through the application UI, not throug
 ```bash
 cd backend
 python -m pytest
+# Same suite on Postgres, as CI runs it
+TEST_DATABASE_URL=postgresql+asyncpg://alloyd:alloyd_dev_password@127.0.0.1:5435/alloyd_test python -m pytest
 ```
 
-### Frontend Lint
+### Frontend Unit Tests and Lint
 
 ```bash
 cd frontend
+npm test
 npm run lint
 ```
 
@@ -104,10 +119,20 @@ npm run lint
 
 ```bash
 cd frontend
-npm run build
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api npm run build
 ```
 
-Run all three before submitting changes.
+### End-to-end Smoke
+
+Requires the compose stack with `ENABLE_MOCK_PROVIDER=true`; the exact command
+is in `docs/RUNNING.md`.
+
+```bash
+cd frontend
+npm run test:e2e
+```
+
+Run these before submitting changes.
 
 ## 7. Security Rules
 
