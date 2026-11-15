@@ -202,7 +202,7 @@ GENERAL. Improving the classifier is follow-up work, not part of this phase.
 ---
 
 ## Phase 8 — Docs and legal drafts
-**Status:** IN PROGRESS — docs written on 2026-11-15; fresh-clone verification pending.
+**Status:** VERIFIED — acceptance criteria met and recorded on 2026-11-15; awaiting explicit owner approval.
 
 **Goal:** a stranger can run it, and the docs match the code.
 
@@ -214,10 +214,42 @@ GENERAL. Improving the classifier is follow-up work, not part of this phase.
 
 **Acceptance:** someone following the README from a fresh clone gets the app running (agent verifies in a clean directory); no doc contradicts the code.
 
-### Verification record
+### Verification record — 2026-11-15
 
-_Pending. Filled in after the fresh-clone run._
+Fresh-clone run: `d483d5f` cloned to a clean directory
+(`%TEMP%\alloyd-fresh`), then `COMPOSE_PROJECT_NAME=alloyd-fresh
+POSTGRES_PORT=5436 docker compose up -d --build`. The port override was needed
+because this machine already had 5432 in use; it is the documented override in
+`docs/RUNNING.md`, not a change to the repo.
 
+| Check | Result | Evidence / limitation |
+| :--- | :--- | :--- |
+| Clone + documented Docker commands | PASS | All four services came up: db healthy, one-shot `migrate` exited 0, backend healthy, frontend healthy. |
+| Liveness and readiness | PASS | `/health` 200, `/ready` 200 (which exercises the real database connection). |
+| Frontend served | PASS | `http://localhost:3000/` returned 200. |
+| Register in a browser | PASS | New account created with the documented 12+ character password rule; CSRF-protected request accepted. |
+| Onboarding path | PASS | With zero keys, `/` redirects to `/settings?onboarding=true` and the Settings page shows the "configure at least one provider key" state. This is intended behavior (`frontend/src/app/page.tsx:45–60`) and matches the README's "add a key before chatting". |
+| Chat round-trip in the clone | NOT RUN — no key available | The clone had no provider key, and the mock provider is gated and off in the documented default stack. Chat streaming is covered by the backend suite and the Playwright projects against the mock provider; real-provider calls remain unverified per the Phase 2 owner waiver. |
+| Backend tests | PASS | 142 passed with `backend/.venv` (SQLite by default); CI runs the same suite against Postgres. |
+| Frontend unit tests | PASS | `npm test`: 22 passed. |
+| Docs vs. code cross-check | PASS | Read the code for each doc claim reviewed: middleware order, SSE event names and headers, fallback gates, classifier order and category list, `UsageEvent` fields, the 14 API routes, `fetchWithAuth` 403/401 behavior, password rules, compose service names and ports. No contradiction found after the corrections listed below. |
+| License | PASS | Owner selected MIT; `LICENSE` added and the README license section updated. |
+
+Corrections made during this phase: `.venv` standardized as the backend venv
+(a stale `venv/` existed locally and had been mentioned in one draft), the
+`fetchWithAuth` description corrected to "clears the CSRF token on 403 and
+redirects to `/login` on 401" (it does not retry), and project-status wording
+narrowed to "Phases 6 and 7 await owner approval".
+
+**DRAFT files:** `docs/legal/PRIVACY_POLICY.draft.md` and
+`docs/legal/TERMS_OF_USE.draft.md` carry a DRAFT — OWNER REVIEW REQUIRED banner
+and unfilled placeholders for the operator's legal name, contact email, and
+governing law. They are not legal advice and must not be presented as final to
+users.
+
+**Approval:** AWAITING OWNER APPROVAL. A fresh clone following only the README
+produced a running, registering application, and the reviewed docs matched the
+code.
 
 ---
 

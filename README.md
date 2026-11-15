@@ -15,7 +15,7 @@ the answer in a chat UI with saved history.
 - **Measurement:** every provider attempt records a content-free usage row
   (route, status, tokens, latency, cost) that you can aggregate.
 
-Alloyd is pre-release software: Phases 6 and 7 await owner approval, and it has
+Alloyd is pre-release software: Phases 6–8 await owner approval, and it has
 not been deployed yet. See [Project status](#project-status).
 
 ## Requirements
@@ -212,12 +212,11 @@ classifier accuracy and its weak spots are recorded in
 Alloyd V1 succeeds when the builder and a few developers use it for real work
 for a week without switching back to provider web UIs.
 
-Phases 1–7 are implemented and verified; owner approval for Phases 6 and 7 is
-still pending. Phase 8 documentation is written and its fresh-clone verification
-is in progress. Phase 9 is one week of dogfooding followed by a release-candidate
-audit. Deployment is deliberately deferred until after that.
+Phases 1–8 are implemented and verified; owner approval for Phases 6, 7, and 8
+is still pending. Phase 9 is one week of dogfooding followed by a
+release-candidate audit. Deployment is deliberately deferred until after that.
 
 ## License
 
-No license has been chosen yet; the owner must select one before others are
-invited to use the code.
+MIT — see [`LICENSE`](LICENSE). The copyright line reads "Alloyd contributors";
+the owner can replace it with a legal name without changing the license terms.
