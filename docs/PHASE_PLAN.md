@@ -234,6 +234,7 @@ because this machine already had 5432 in use; it is the documented override in
 | Frontend unit tests | PASS | `npm test`: 22 passed. |
 | Docs vs. code cross-check | PASS | Read the code for each doc claim reviewed: middleware order, SSE event names and headers, fallback gates, classifier order and category list, `UsageEvent` fields, the 14 API routes, `fetchWithAuth` 403/401 behavior, password rules, compose service names and ports. No contradiction found after the corrections listed below. |
 | License | PASS | Owner selected MIT; `LICENSE` added and the README license section updated. |
+| Remote CI on `main` | PASS | Both Phase 8 commits were pushed together, so run [43740535303](https://github.com/shafeeq27edu-ai/Alloyd/actions/runs/43740535303) at `da3f719` covers `d483d5f` too: all four jobs (secret scan, backend on Postgres, frontend checks, Playwright) passed. |
 
 Corrections made during this phase: `.venv` standardized as the backend venv
 (a stale `venv/` existed locally and had been mentioned in one draft), the
