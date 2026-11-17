@@ -132,9 +132,12 @@ class ChatRequest(BaseModel):
     message: str = Field(default="", max_length=20000)
     conversation_id: Optional[str] = Field(default=None, max_length=64)
     regenerate: bool = False
+    edit_message_id: Optional[str] = Field(default=None, max_length=64)
 
     @model_validator(mode="after")
     def require_message_unless_regenerating(self):
+        if self.regenerate and self.edit_message_id:
+            raise ValueError("Cannot regenerate and edit in the same request.")
         if not self.regenerate and not self.message.strip():
             raise ValueError("Message cannot be empty.")
         return self
@@ -180,32 +183,59 @@ async def stream_chat(
         else:
             req_mode, req_provider, req_model = "auto", None, None
     else:
-        if req.regenerate:
-            raise HTTPException(status_code=400, detail="Regenerate requires an existing conversation.")
+        if req.regenerate or req.edit_message_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Regenerate and edit require an existing conversation.",
+            )
         req_mode, req_provider, req_model = req.mode, req.provider, req.model
 
     # Regenerate reuses the last stored user message and replaces the answers
-    # that followed it, so no duplicate user message is written.
+    # that followed it. Edit rewrites one earlier user message and replaces
+    # everything after it. Neither writes a duplicate user message.
     replacement_ids: list[str] = []
     history_snapshot: list[dict] | None = None
-    if req.regenerate:
+    edit_target: Message | None = None
+    user_message_id: str | None = None
+    if req.regenerate or req.edit_message_id:
         history_result = await db.execute(
             select(Message)
             .where(Message.conversation_id == conversation.id)
             .order_by(Message.created_at)
         )
         stored_messages = history_result.scalars().all()
-        last_user_index = next(
-            (i for i in range(len(stored_messages) - 1, -1, -1) if stored_messages[i].role == "user"),
-            None,
-        )
-        if last_user_index is None:
-            raise HTTPException(status_code=400, detail="There is no user message to regenerate.")
-        message_text = stored_messages[last_user_index].content
-        history_snapshot = [
-            {"role": m.role, "content": m.content} for m in stored_messages[:last_user_index + 1]
-        ]
-        replacement_ids = [m.id for m in stored_messages[last_user_index + 1:]]
+        if req.regenerate:
+            last_user_index = next(
+                (i for i in range(len(stored_messages) - 1, -1, -1) if stored_messages[i].role == "user"),
+                None,
+            )
+            if last_user_index is None:
+                raise HTTPException(status_code=400, detail="There is no user message to regenerate.")
+            user_message_id = stored_messages[last_user_index].id
+            message_text = stored_messages[last_user_index].content
+            history_snapshot = [
+                {"role": m.role, "content": m.content}
+                for m in stored_messages[:last_user_index + 1]
+            ]
+            replacement_ids = [m.id for m in stored_messages[last_user_index + 1:]]
+        else:
+            target_index = next(
+                (i for i, m in enumerate(stored_messages) if m.id == req.edit_message_id),
+                None,
+            )
+            if target_index is None:
+                raise HTTPException(status_code=404, detail="Message not found in this conversation.")
+            if stored_messages[target_index].role != "user":
+                raise HTTPException(status_code=400, detail="Only user messages can be edited.")
+            edit_target = stored_messages[target_index]
+            user_message_id = edit_target.id
+            message_text = req.message
+            history_snapshot = [
+                {"role": m.role, "content": m.content}
+                for m in stored_messages[:target_index]
+            ]
+            history_snapshot.append({"role": "user", "content": message_text})
+            replacement_ids = [m.id for m in stored_messages[target_index + 1:]]
     else:
         message_text = req.message
 
@@ -264,8 +294,21 @@ async def stream_chat(
         conversation.provider = req_provider
         conversation.model = req_model
 
-    if not req.regenerate:
-        db.add(Message(conversation_id=conversation.id, role="user", content=message_text))
+    if edit_target is not None:
+        # The edit is the user's explicit intent, so it is persisted up front and
+        # the answers it replaced go with it. A failed attempt therefore leaves a
+        # shorter, consistent history instead of answers to a discarded question.
+        edit_target.content = message_text
+        if replacement_ids:
+            await db.execute(delete(Message).where(Message.id.in_(replacement_ids)))
+        replacement_ids = []
+    elif not req.regenerate:
+        new_user_message = Message(
+            conversation_id=conversation.id, role="user", content=message_text
+        )
+        db.add(new_user_message)
+        await db.flush()
+        user_message_id = new_user_message.id
     await db.commit()
 
     if is_new_conversation:
@@ -332,6 +375,7 @@ async def stream_chat(
                 "model": target_model,
                 "mode": req_mode,
                 "conversation_id": conversation.id,
+                "user_message_id": user_message_id,
                 "category": getattr(category, "value", str(category)) if req_mode == "auto" else "MANUAL"
             }
             if notice_text:

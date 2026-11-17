@@ -15,6 +15,7 @@ export default function Select({
   className = "",
   variant = "default",
   label,
+  menuAlign = "left",
 }: {
   options: SelectOption[];
   value: string;
@@ -23,6 +24,7 @@ export default function Select({
   className?: string;
   variant?: "default" | "inline";
   label?: string;
+  menuAlign?: "left" | "right";
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
@@ -122,7 +124,7 @@ export default function Select({
 
   // Dropdown positioning classes
   const dropdownPosition = variant === 'inline'
-    ? 'min-w-[160px] left-0 bottom-full mb-1.5'
+    ? `min-w-[160px] bottom-full mb-1.5 ${menuAlign === 'right' ? 'right-0' : 'left-0'}`
     : dropUp
       ? 'w-full min-w-[120px] left-0 bottom-full mb-1.5'
       : 'w-full min-w-[120px] left-0 mt-1.5';

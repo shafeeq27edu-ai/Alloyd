@@ -496,6 +496,144 @@ async def test_regenerate_requires_a_conversation(auth_client):
     assert response.status_code == 400
 
 
+async def _seed_thread(db_session, user_id: str, thread):
+    conversation = Conversation(user_id=user_id, title="edit", mode="auto")
+    db_session.add(conversation)
+    await db_session.commit()
+    await db_session.refresh(conversation)
+    rows = [Message(conversation_id=conversation.id, role=role, content=content) for role, content in thread]
+    db_session.add_all(rows)
+    await db_session.commit()
+    for row in rows:
+        await db_session.refresh(row)
+    return conversation, rows
+
+
+@pytest.mark.asyncio
+async def test_edit_rewrites_the_question_and_replaces_later_messages(
+    auth_client, db_session, test_user
+):
+    await _add_key(db_session, test_user.id, "mock", "validkey")
+    conversation, rows = await _seed_thread(db_session, test_user.id, [
+        ("user", "first question"),
+        ("assistant", "old answer"),
+        ("user", "follow up"),
+        ("assistant", "second answer"),
+    ])
+
+    response = await auth_client.post(
+        "/api/chat/",
+        json={
+            "mode": "auto", "conversation_id": conversation.id,
+            "message": "edited question", "edit_message_id": rows[0].id,
+        },
+    )
+    assert response.status_code == 200
+    assert "mock response" in response.text
+    assert f'"user_message_id": "{rows[0].id}"' in response.text
+
+    _conversations, messages = await _stored_rows(db_session)
+    assert [(m.role, m.content) for m in messages] == [
+        ("user", "edited question"),
+        ("assistant", "mock response"),
+    ]
+    assert messages[0].id == rows[0].id
+
+
+@pytest.mark.asyncio
+async def test_edit_rejects_assistant_messages(auth_client, db_session, test_user):
+    await _add_key(db_session, test_user.id, "mock", "validkey")
+    conversation, rows = await _seed_thread(db_session, test_user.id, [
+        ("user", "question"),
+        ("assistant", "answer"),
+    ])
+
+    response = await auth_client.post(
+        "/api/chat/",
+        json={
+            "mode": "auto", "conversation_id": conversation.id,
+            "message": "rewritten", "edit_message_id": rows[1].id,
+        },
+    )
+    assert response.status_code == 400
+
+    _conversations, messages = await _stored_rows(db_session)
+    assert [(m.role, m.content) for m in messages] == [
+        ("user", "question"),
+        ("assistant", "answer"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_edit_rejects_message_from_another_conversation(
+    auth_client, db_session, test_user
+):
+    await _add_key(db_session, test_user.id, "mock", "validkey")
+    conversation, _rows = await _seed_thread(db_session, test_user.id, [("user", "question")])
+    other_conversation, other_rows = await _seed_thread(db_session, test_user.id, [("user", "other")])
+
+    response = await auth_client.post(
+        "/api/chat/",
+        json={
+            "mode": "auto", "conversation_id": conversation.id,
+            "message": "rewritten", "edit_message_id": other_rows[0].id,
+        },
+    )
+    assert response.status_code == 404
+
+    _conversations, messages = await _stored_rows(db_session)
+    assert [m.content for m in messages] == ["question", "other"]
+
+
+@pytest.mark.asyncio
+async def test_edit_cannot_target_another_users_conversation(
+    auth_client, db_session, test_user, test_user_2
+):
+    await _add_key(db_session, test_user.id, "mock", "validkey")
+    conversation, rows = await _seed_thread(db_session, test_user_2.id, [("user", "secret")])
+
+    response = await auth_client.post(
+        "/api/chat/",
+        json={
+            "mode": "auto", "conversation_id": conversation.id,
+            "message": "rewritten", "edit_message_id": rows[0].id,
+        },
+    )
+    assert response.status_code == 404
+
+    _conversations, messages = await _stored_rows(db_session)
+    assert [m.content for m in messages] == ["secret"]
+
+
+@pytest.mark.asyncio
+async def test_edit_requires_a_conversation(auth_client):
+    response = await auth_client.post(
+        "/api/chat/", json={"mode": "auto", "message": "hello", "edit_message_id": "missing"}
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_edit_and_regenerate_cannot_combine(auth_client):
+    response = await auth_client.post(
+        "/api/chat/",
+        json={"mode": "auto", "message": "hello", "regenerate": True, "edit_message_id": "missing"},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_send_reports_the_user_message_id(auth_client, db_session, test_user):
+    await _add_key(db_session, test_user.id, "mock", "validkey")
+
+    response = await auth_client.post("/api/chat/", json={"mode": "auto", "message": "hello"})
+    assert response.status_code == 200
+
+    _conversations, messages = await _stored_rows(db_session)
+    user_message = next(m for m in messages if m.role == "user")
+    assert f'"user_message_id": "{user_message.id}"' in response.text
+
+
 @pytest.mark.asyncio
 async def test_trimmed_history_is_announced(auth_client, db_session, test_user, monkeypatch):
     monkeypatch.setattr(settings, "HISTORY_MAX_CHARS", 20)

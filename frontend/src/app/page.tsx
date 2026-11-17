@@ -8,12 +8,12 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { Menu, Settings, SendHorizontal, AlertCircle, Sparkles, Square, RotateCcw, Copy, Check } from "lucide-react";
+import { Menu, Settings, SendHorizontal, AlertCircle, Sparkles, Square, RotateCcw, Copy, Check, Pencil } from "lucide-react";
 import Select from "@/components/Select";
 import { useToast } from "@/components/Toast";
 import { formatUsage, usageTitle, type MessageUsage } from "@/lib/usage";
 
-type Message = { role: string; content: string; provider?: string; model?: string; mode?: string; category?: string; usage?: MessageUsage | null };
+type Message = { id?: string; role: string; content: string; provider?: string; model?: string; mode?: string; category?: string; usage?: MessageUsage | null };
 type ModelOption = { id: string; name: string; capabilities: string[] };
 
 export default function ChatPage() {
@@ -41,6 +41,9 @@ export default function ChatPage() {
   const abortRef = useRef<AbortController | null>(null);
   const lastUserTextRef = useRef("");
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [historyVersion, setHistoryVersion] = useState(0);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -114,7 +117,7 @@ export default function ChatPage() {
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [currentConversationId]);
+  }, [currentConversationId, historyVersion]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -136,12 +139,23 @@ export default function ChatPage() {
     }
   };
 
-  const runChat = async ({ message, regenerate = false }: { message: string; regenerate?: boolean }) => {
+  const runChat = async ({
+    message,
+    regenerate = false,
+    editMessageId,
+    override,
+  }: {
+    message: string;
+    regenerate?: boolean;
+    editMessageId?: string;
+    override?: { provider: string; model: string };
+  }) => {
     if (isStreaming) return;
     if (!regenerate && !message.trim()) return;
 
     lastUserTextRef.current = message;
-    if (regenerate) {
+    // Regenerate and edit replace the answer in place; the question is already on screen.
+    if (regenerate || editMessageId) {
       setMessages(prev => [...prev, { role: "assistant", content: "" }]);
     } else {
       setMessages(prev => [...prev, { role: "user", content: message }, { role: "assistant", content: "" }]);
@@ -154,11 +168,13 @@ export default function ChatPage() {
     abortRef.current = controller;
 
     try {
-      const payload: Record<string, string | boolean> = { mode, message };
+      const effectiveMode = override ? "manual" : mode;
+      const payload: Record<string, string | boolean> = { mode: effectiveMode, message };
       if (regenerate) payload.regenerate = true;
-      if (mode === "manual") {
-        payload.provider = selectedProvider;
-        payload.model = selectedModel;
+      if (editMessageId) payload.edit_message_id = editMessageId;
+      if (effectiveMode === "manual") {
+        payload.provider = override?.provider ?? selectedProvider;
+        payload.model = override?.model ?? selectedModel;
       }
       if (currentConversationId) {
         payload.conversation_id = currentConversationId;
@@ -174,6 +190,12 @@ export default function ChatPage() {
         const err = await response.json().catch(() => null);
         setError(err?.detail || `Request failed (${response.status})`);
         dropEmptyAssistant();
+        if (editMessageId) {
+          // The server rejected the edit before storing it; reload so the text
+          // on screen matches what is actually saved.
+          streamedConversationIdRef.current = null;
+          setHistoryVersion(v => v + 1);
+        }
         return;
       }
 
@@ -230,6 +252,19 @@ export default function ChatPage() {
             if (routingData.notice && !noticeShown) {
               noticeShown = true;
               addToast(routingData.notice, "info");
+            }
+            if (routingData.user_message_id) {
+              setMessages(prev => {
+                if (activeConversationRef.current !== streamTargetRef.current) return prev;
+                for (let idx = prev.length - 1; idx >= 0; idx--) {
+                  if (prev[idx].role === "user" && !prev[idx].id) {
+                    const next = [...prev];
+                    next[idx] = { ...next[idx], id: routingData.user_message_id };
+                    return next;
+                  }
+                }
+                return prev;
+              });
             }
             setMessages(prev => {
               if (activeConversationRef.current !== streamTargetRef.current) return prev;
@@ -359,6 +394,56 @@ export default function ChatPage() {
     }
   };
 
+  const startEdit = (index: number) => {
+    if (isStreaming) return;
+    setEditingIndex(index);
+    setEditDraft(messages[index].content);
+  };
+
+  const cancelEdit = () => {
+    setEditingIndex(null);
+    setEditDraft("");
+  };
+
+  const saveEdit = (index: number) => {
+    const target = messages[index];
+    const text = editDraft.trim();
+    if (isStreaming || !target?.id || !text) return;
+    setEditingIndex(null);
+    setEditDraft("");
+    // Everything after the edited question is replaced server-side; mirror that
+    // locally so the screen never shows answers to the discarded wording.
+    setMessages(prev => [...prev.slice(0, index), { ...prev[index], content: text }]);
+    void runChat({ message: text, editMessageId: target.id });
+  };
+
+  const handleRetryWith = (choice: string) => {
+    if (isStreaming || !currentConversationId || !choice) return;
+    const separator = choice.indexOf("::");
+    const provider = choice.slice(0, separator);
+    const modelId = choice.slice(separator + 2);
+    const lastUser = [...messages].reverse().find(m => m.role === "user");
+    if (!lastUser) return;
+    setMode("manual");
+    setSelectedProvider(provider);
+    setSelectedModel(modelId);
+    if (messages[messages.length - 1]?.role === "assistant") {
+      setMessages(prev => prev.slice(0, -1));
+    }
+    setError(null);
+    void runChat({
+      message: lastUser.content,
+      regenerate: true,
+      override: { provider, model: modelId },
+    });
+  };
+
+  const retryChoices = Object.entries(models)
+    .filter(([provider]) => configuredProviders.includes(provider))
+    .flatMap(([provider, list]) =>
+      list.map(m => ({ value: `${provider}::${m.id}`, label: `${m.name} · ${provider}` }))
+    );
+
   const skills = [
     { name: "Code Review", prompt: "@reviewer Review this code: " },
     { name: "Explain Code", prompt: "@explainer How does this work? " },
@@ -432,21 +517,72 @@ export default function ChatPage() {
               {messages.map((m, i) => (
                 <div key={i} className={`flex w-full group ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   {m.role === 'user' ? (
-                    <div className="px-5 py-3.5 bg-zinc-800/80 text-zinc-100 rounded-2xl rounded-tr-sm max-w-[85%] text-[15px] leading-relaxed shadow-sm">
-                      {m.content}
-                    </div>
+                    editingIndex === i ? (
+                      <div className="w-full flex flex-col items-end gap-2">
+                        <textarea
+                          aria-label="Edit message text"
+                          value={editDraft}
+                          autoFocus
+                          rows={3}
+                          onChange={e => setEditDraft(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              saveEdit(i);
+                            } else if (e.key === 'Escape') {
+                              e.preventDefault();
+                              cancelEdit();
+                            }
+                          }}
+                          className="w-full max-w-[85%] px-5 py-3.5 bg-zinc-900 border border-zinc-700 rounded-2xl rounded-tr-sm text-[15px] leading-relaxed text-zinc-100 outline-none resize-none focus:border-zinc-500 transition-colors"
+                        />
+                        <div className="flex items-center gap-2 text-xs">
+                          <button
+                            type="button"
+                            onClick={cancelEdit}
+                            className="px-3 py-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors focus-visible:ring-2 focus-visible:ring-zinc-500 outline-none"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => saveEdit(i)}
+                            disabled={!editDraft.trim()}
+                            className="px-3 py-1.5 rounded-lg bg-zinc-100 text-zinc-900 font-medium hover:bg-white disabled:opacity-30 transition-colors focus-visible:ring-2 focus-visible:ring-zinc-400 outline-none"
+                          >
+                            Save and resend
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="relative max-w-[85%]">
+                        <div className="px-5 py-3.5 bg-zinc-800/80 text-zinc-100 rounded-2xl rounded-tr-sm text-[15px] leading-relaxed shadow-sm break-words">
+                          {m.content}
+                        </div>
+                        {m.id && !isStreaming && (
+                          <button
+                            type="button"
+                            onClick={() => startEdit(i)}
+                            className="absolute right-full top-1/2 -translate-y-1/2 mr-2 p-1.5 text-zinc-600 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-zinc-200 hover:bg-zinc-800/60 rounded-md transition-colors focus-visible:ring-2 focus-visible:ring-zinc-500 outline-none"
+                            aria-label="Edit message"
+                          >
+                            <Pencil size={12} />
+                          </button>
+                        )}
+                      </div>
+                    )
                   ) : (
                     <div className="flex flex-col w-full min-w-0">
                       <div className="flex items-center gap-2 mb-2 min-h-[20px] text-xs font-mono text-zinc-500">
                         {m.provider && (
-                          <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="flex items-center gap-2">
                             <span className="uppercase text-zinc-400 font-medium">{m.provider}</span>
                             <span className="text-zinc-700" aria-hidden="true">/</span>
                             <span>{m.model}</span>
                             {m.category && (
                               <>
                                 <span className="text-zinc-700" aria-hidden="true">/</span>
-                                <span className="text-zinc-400">{m.category}</span>
+                                <span className="text-zinc-400">{m.category.replace(/_/g, " ").toLowerCase()}</span>
                               </>
                             )}
                             {formatUsage(m.usage) && (
@@ -480,6 +616,16 @@ export default function ChatPage() {
                               >
                                 <RotateCcw size={13} />
                               </button>
+                            )}
+                            {i === messages.length - 1 && !isStreaming && retryChoices.length > 0 && (
+                              <Select
+                                options={[{ value: "", label: "Switch model" }, ...retryChoices]}
+                                value=""
+                                onChange={handleRetryWith}
+                                variant="inline"
+                                menuAlign="right"
+                                className="border-l border-zinc-800 pl-1"
+                              />
                             )}
                           </div>
                         )}
