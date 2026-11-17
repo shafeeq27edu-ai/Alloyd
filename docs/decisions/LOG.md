@@ -221,3 +221,18 @@
 **Why:** routing must work on the first message with exactly one provider key configured, and that key may be from any provider. An extra LLM round-trip before every answer adds latency and spend to the product's main loop and fails when that specific provider's key is missing or invalid. Rules are deterministic and unit-testable. The recorded cost is accuracy: WRITING is weakest (41.7%), but every miss lands in `GENERAL`, which is always a valid route, so a misclassification degrades model choice rather than producing an error.
 
 **Revisit if:** routing becomes user-visible enough that 66.1% is not acceptable (candidate: before the Phase 9 release audit), or if a provider-agnostic local classifier becomes cheap to run.
+
+## 2026-11-17 — Edit-and-resend reuses `POST /chat`; edits replace the branch
+
+**Context:** Daily use needs "change what I asked and try again" without retyping. The UI previously offered only regenerate (same question) and retry (after an error). The backend already had a replace-the-tail mechanism for regenerate (`regenerate: true`) with ownership checks, history rebuild, and `replacement_ids`.
+
+**Options:**
+- (a) Extend `POST /api/chat/` with `edit_message_id`.
+- (b) New endpoint `POST /api/conversations/{id}/messages/{mid}/edit` that mutates history, then the client calls `/chat/` to generate.
+- (c) Client-side delete-and-resend.
+
+**Decision:** (a). The request carries `edit_message_id`; the handler looks the message up scoped to the user's conversation, requires `role = "user"`, rebuilds history from the edited text, rewrites that row, and deletes everything after it in the same commit before streaming. The `routing` event now includes `user_message_id` so the just-sent question becomes editable without a reload.
+
+**Why:** All the expensive glue — CSRF, rate limiting, key resolution, fallback, usage recording — lives in one handler; a second endpoint would either duplicate it or force a two-request flow where a failure between the requests leaves history half-updated. Deleting the replaced tail at edit time (rather than only on stream success, as regenerate does) keeps the stored history consistent if the provider then fails: there is no question followed by answers written for different wording. The spend rows for deleted answers survive because `usage_events.message_id` is deliberately not a foreign key.
+
+**Revisit if:** branching becomes a feature (keeping the old answer reachable), at which point edits need their own storage model rather than deleting the tail.

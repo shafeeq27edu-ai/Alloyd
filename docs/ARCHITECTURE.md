@@ -80,7 +80,12 @@ requires the session cookie and the CSRF double-submit pair, then:
 5. **Write once.** Only after every fallible step passes are the conversation
    row (if new), the user message, and any mode switch committed. A new
    conversation schedules `generate_and_update_title` as a background task.
-   Regenerate writes no user message; it reuses the last stored one.
+   Regenerate (`regenerate: true`) writes no user message; it reuses the last
+   stored one. Edit (`edit_message_id`) rewrites that earlier user message and
+   deletes every message after it in the same commit, so a failed attempt
+   leaves a consistent history rather than answers to discarded wording.
+   Editing an assistant message, a message from another conversation, or a
+   message in a conversation the user does not own is rejected.
 6. **Prepare history.** A matching `@skill` injects a system prompt, then
    `trim_history` enforces `HISTORY_MAX_CHARS` (default 24,000 characters ≈
    6,000 tokens), keeping the system prompt and the newest messages and
@@ -94,7 +99,7 @@ and `X-Accel-Buffering: no`. Event contract:
 
 | Event | Data | Meaning |
 | :--- | :--- | :--- |
-| `routing` | `provider`, `model`, `mode`, `conversation_id`, `category`, optional `notice` | Sent before each attempt, including the fallback attempt |
+| `routing` | `provider`, `model`, `mode`, `conversation_id`, `user_message_id`, `category`, optional `notice` | Sent before each attempt, including the fallback attempt; `user_message_id` lets the UI make a just-sent question editable |
 | `message` | `{"content": "..."}` | One text delta |
 | `usage` | `input_tokens`, `output_tokens`, `token_source`, `estimated_cost_usd` | Once, after a successful answer |
 | `done` | `{}` | Answer persisted; stream ends |
@@ -193,7 +198,7 @@ prices are never hardcoded.
 | `GET /api/keys/` | cookie | no | Masked key hints only |
 | `POST /api/keys/` | cookie | yes | Validate against the provider, then store encrypted |
 | `DELETE /api/keys/{provider_name}` | cookie | yes | Remove a key |
-| `POST /api/chat/` | cookie | yes | Streamed answer (SSE) |
+| `POST /api/chat/` | cookie | yes | Streamed answer (SSE); `regenerate` replaces the last answer, `edit_message_id` rewrites an earlier user message and replaces what followed |
 | `GET /api/conversations/` | cookie | no | The user's conversations |
 | `GET /api/conversations/{id}/messages` | cookie | no | Messages with their usage metadata |
 | `DELETE /api/conversations/{id}` | cookie | yes | Delete a conversation and its messages |
@@ -223,7 +228,7 @@ against `ALLOWED_ORIGINS`. Identity always comes from the verified JWT cookie;
 
 | Path | Role |
 | :--- | :--- |
-| `src/app/page.tsx` | Chat workspace: conversation list, model selector, composer, message list, streaming state, stop/regenerate/copy controls, usage line |
+| `src/app/page.tsx` | Chat workspace: conversation list, model selector, composer, message list, streaming state, stop/regenerate/copy controls, inline edit-and-resend, route line with per-answer model switch, usage line |
 | `src/app/login/page.tsx` | Login and register (client-side minimum length; the server is authoritative) |
 | `src/app/settings/page.tsx` | Add/update/remove provider keys, delete account |
 | `src/app/layout.tsx` | Root layout, fonts, toast provider |
@@ -249,7 +254,7 @@ table is in `docs/RUNNING.md`. Frontend variables are
 
 ## Tests and CI
 
-- `backend/tests/` — 142 tests on SQLite locally, the same suite against
+- `backend/tests/` — 149 tests on SQLite locally, the same suite against
   Postgres in CI via `TEST_DATABASE_URL`. Coverage includes auth and cookies,
   CSRF, ownership, key validation/rotation, chat persistence rules, regenerate,
   history trimming, fallback, error mapping, usage events, readiness, catalog,
